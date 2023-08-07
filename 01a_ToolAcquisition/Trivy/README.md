@@ -1,0 +1,1 @@
+Here you put all versions of Trivy you want to run (our format was T_X.XX.X )

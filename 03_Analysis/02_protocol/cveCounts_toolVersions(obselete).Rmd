@@ -1,0 +1,123 @@
+---
+title: "cveCounts_toolVersions"
+author: "Gabe Cowley"
+date: "2023-07-24"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(gtools)
+library(purrr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+cvelist <- read.csv(here("02_Preprocessing", "02c_onlyCVEs", "03_incremental", "cvesIdentified.csv"))
+
+grype_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/"))
+trivy_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Trivy/"))
+```
+
+```{r}
+# Creating lists of all versions, and adding in the release dates, we looked up and added each of these manually. 
+grype_versions <- list(list("G_X.XX.X", as.Date("Year-month-day")))
+```
+
+```{r}
+
+# Create an empty dataframe with three columns: vulnerabilityID, version (toolVersion), and count
+vulnerabilityCounts_grype <-
+  data.frame(
+    vulnerabilityID = character(),
+    toolVersion = character(),
+    count = integer(),
+    stringsAsFactors = FALSE
+  )
+
+for (grype_version in grype_list) {
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_grype <- df_grype[, c("vulnerabilityID", "count")]
+  
+  # Add the grype_version column to the df_grype dataframe
+  df_grype$toolVersion <- grype_version
+  
+  # Combine the data with the existing vulnerabilityCounts dataframe
+  vulnerabilityCounts_grype <-
+    rbind(vulnerabilityCounts_grype, df_grype)
+}
+
+# Get unique vulnerabilityID and toolVersion combinations
+unique_combinations_grype <-
+  expand.grid(
+    vulnerabilityID = unique(vulnerabilityCounts_grype$vulnerabilityID),
+    toolVersion = grype_list
+  )
+
+# For when a tool version finds no vulnerabilities, I replace the count "NA" with 0.
+vulnerabilityCounts_grype <- unique_combinations_grype %>%
+  left_join(vulnerabilityCounts_grype,
+            by = c("vulnerabilityID", "toolVersion")) %>%
+  replace_na(list(count = 0))
+
+# Reorder the columns to "vulnerabilityID", "version", "count"
+vulnerabilityCounts_grype <- vulnerabilityCounts_grype %>%
+  group_by(vulnerabilityID, toolVersion) %>%
+  summarize(count = sum(count)) %>%
+  ungroup() %>%
+  mutate(version_order = as.numeric(sub("G_0\\.(\\d+).*", "\\1", toolVersion))) %>%
+  arrange(vulnerabilityID, version_order) %>%
+  select(vulnerabilityID, toolVersion, count)
+
+# Filter the dataframe to include only data for "CVE-XXXX-XXXX"
+vulnerabilityID_to_plot <-
+  c(
+    "CVE-XXXX-XXXX",
+    "CVE-XXXX-XXXX",
+  )
+filtered_data <- vulnerabilityCounts_grype %>%
+  filter(vulnerabilityID == vulnerabilityID_to_plot)
+
+# Convert toolVersion column to a factor to maintain the order for plotting
+filtered_data$toolVersion <- factor(filtered_data$toolVersion,
+                                    levels = unique(filtered_data$toolVersion))
+
+# Create the graph using ggplot2
+ggplot(
+  filtered_data,
+  aes(
+    x = toolVersion,
+    y = count,
+    group = vulnerabilityID,
+    color = vulnerabilityID
+  )
+) +
+  geom_line() +
+  labs(
+    x = "Tool Version",
+    y = "Count",
+    title = paste("Vulnerability Counts for", vulnerabilityID_to_plot),
+    color = "Vulnerability ID"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 90))
+
+
+```
+
+```{r}
+
+```
+

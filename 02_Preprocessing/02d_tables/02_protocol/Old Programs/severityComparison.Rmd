@@ -1,0 +1,61 @@
+---
+title: "severityComparison"
+author: "Sabrina Hendricks"
+date: "2023-06-15"
+output: html_document
+---
+```{r setup}
+library(tidyverse)
+library(here) #For relative file paths
+```
+
+```{r}
+# Read the CSV files
+df_trivy <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Trivy", "master_dataTrivy.csv"))
+df_grype <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Grype", "master_dataGrype.csv"))
+```
+
+```{r}
+# Remove the "count" column from the DataFrames
+df_trivy <- df_trivy[, -which(names(df_trivy) == "count")]
+df_grype <- df_grype[, -which(names(df_grype) == "count")]
+
+# Convert the severity values to lowercase in both data frames
+df_trivy$severity <- tolower(df_trivy$severity)
+df_grype$severity <- tolower(df_grype$severity)
+```
+
+```{r}
+# Perform a full join to include vulnerabilityIDs from df_grype that are not in df_trivy
+merged_df <- full_join(df_trivy, df_grype, by = c("imageName", "vulnerabilityID"))
+
+# Rename the columns
+colnames(merged_df)[which(names(merged_df) == "severity.x")] <- "trivySeverity"
+colnames(merged_df)[which(names(merged_df) == "severity.y")] <- "grypeSeverity"
+
+# Remove duplicates based on vulnerabilityID column
+merged_df <- merged_df[!duplicated(merged_df$vulnerabilityID), ]
+
+# Sort the dataframe by image name
+merged_df <- arrange(merged_df, imageName)
+
+# Reset row names
+rownames(merged_df) <- NULL
+```
+```{r}
+view(merged_df)
+```
+
+```{r}
+# Specify the directory path
+directory_path <- here("02_Preprocessing", "02c_tables", "04_product")
+
+output_name <- "severityComparison.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(merged_df, file = file_path, row.names = FALSE)
+```
+

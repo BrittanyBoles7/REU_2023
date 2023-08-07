@@ -1,0 +1,134 @@
+---
+title: "onlyDifferences"
+author: "Gabe Cowley"
+date: "2023-07-17"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(dplyr)
+```
+
+```{r}
+#NEED TO CHOOSE VERSION BEFORE RUNNING
+# Choose what tool/versions you want to compare, note you can use the same tool and compare different versions
+tool1 <- "T_0.XX.0"
+tool2 <- "G_0.XX.0"
+
+if (str_starts(tool1, "T") & str_starts(tool2, "G")) {
+  tool1_specification <- "Trivy"
+  tool2_specification <- "Grype"
+} else if (str_starts(tool1, "G") & str_starts(tool2, "T")) {
+  tool1_specification <- "Grype"
+  tool2_specification <- "Trivy"
+} else if (str_starts(tool1, "T") & str_starts(tool2, "T")) {
+  tool1_specification <- "Trivy"
+  tool2_specification <- "Trivy"
+} else if (str_starts(tool1, "G") & str_starts(tool2, "G")) {
+  tool1_specification <- "Grype"
+  tool2_specification <- "Grype"
+}
+
+# Read the CSV files
+df_tool1 <-
+  read.csv(
+    here(
+      "02_Preprocessing",
+      "02d_tables",
+      "01_input",
+      tool1_specification,
+      tool1,
+      paste0("master_data", tool1_specification, ".csv")
+    )
+  )
+df_tool2 <-
+  read.csv(
+    here(
+      "02_Preprocessing",
+      "02d_tables",
+      "01_input",
+      tool2_specification,
+      tool2,
+      paste0("master_data", tool2_specification, ".csv")
+    )
+  )
+
+df_tool1 <- df_tool1 %>%
+  mutate(severity = tolower(severity))
+df_tool2 <- df_tool2 %>%
+  mutate(severity = tolower(severity))
+
+```
+
+```{r Image Preserved}
+# Merge the two data frames based on "imageName" and "vulnerabilityID"
+merged <-
+  merge(
+    df_tool1,
+    df_tool2,
+    by = c("imageName", "vulnerabilityID", "severity"),
+    all = TRUE
+  )
+
+#THIS PART IS CURRENTLY NOT WORKING
+# Creating the names for our columns
+tool1count <- paste0(tool1, "_count")
+tool2count <- paste0(tool2, "_count")
+
+#Select the columns to include in the final merged result
+df_merged <-
+  merged[, c("imageName",
+             "vulnerabilityID",
+             "severity",
+             "count.x",
+             "count.y")] %>%
+  rename(tool1count = count.x, tool2count = count.y) %>%
+  mutate(
+    tool1count = ifelse(is.na(tool1count), 0, tool1count),
+    tool2count = ifelse(is.na(tool2count), 0, tool2count)
+  )
+
+df_merged_differences <- df_merged %>%
+  filter((tool1count != tool2count) |
+           (!is.na(tool1count) &
+              is.na(tool2count)) | (is.na(tool1count) & !is.na(tool2count))) %>%
+  select(imageName, vulnerabilityID, tool1count, tool2count) %>%
+  mutate(tool1count = coalesce(tool1count, 0),
+         tool2count = coalesce(tool2count, 0))
+```
+
+```{r Net Differences}
+# This tallies across all of the images
+df_net_differences <- df_merged_differences %>%
+  select(-imageName) %>%
+  group_by(vulnerabilityID) %>%
+  summarise(tool1count_sum = sum(tool1count),
+            tool2count_sum = sum(tool2count)) %>%
+  mutate(difference = abs(tool1count_sum - tool2count_sum)) %>%
+  filter(tool1count_sum != tool2count_sum) %>%
+  arrange(desc(difference))
+```
+
+```{r}
+#Specify the directory path
+directory_path <-
+  here("02_Preprocessing", "02d_tables", "04_product")
+
+# I put ID because the information corresponds to vulnerability ID. We could put "severity" for when we make some comparison in that regard
+output_name_imagePreserver <-
+  paste0(tool1, "vs", tool2, "severity_images_ID.csv")
+output_name_netDifferences <-
+  paste0(tool1, "vs", tool2, "severity_net_ID.csv")
+
+# Specify the file path along with the directory path
+file_path_imagePreserver <-
+  here(directory_path, output_name_imagePreserver)
+file_path_netDifferences <-
+  here(directory_path, output_name_netDifferences)
+
+# Save the data frame as a CSV file
+write.csv(df_merged_differences, file = file_path_imagePreserver, row.names = FALSE)
+write.csv(df_net_differences, file = file_path_netDifferences, row.names = FALSE)
+```

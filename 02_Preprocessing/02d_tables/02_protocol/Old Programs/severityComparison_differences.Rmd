@@ -1,0 +1,55 @@
+---
+title: "severityComparison_differences"
+author: "Gabe Cowley"
+date: "2023-06-19"
+output: html_document
+---
+```{r setup}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+# Read the CSV files
+df_total <- read.csv(here("02_Preprocessing", "02c_tables", "04_product", "severityComparison.csv"))
+```
+
+```{r}
+view(df_total)
+```
+
+```{r}
+#Filters out those images without any vulnerabilities
+filtered_data1 <- df_total[!(is.na(df_total$trivySeverity) | is.na(df_total$grypeSeverity)), ]
+
+#Filters out those times that the two severities are the same
+filtered_data2 <- filtered_data1[(filtered_data1$trivySeverity != filtered_data1$grypeSeverity), ]
+
+#Filters out those times that trivy's severity is "low" and grype's severity is "negligible"
+filtered_data3 <- filtered_data2[!(filtered_data2$trivySeverity == "low" & filtered_data2$grypeSeverity == "negligible"), ]
+
+#There are some cases where the whole row is NA, so I want to get rid of those.
+filtered_data4 <- filtered_data3[!(is.na(filtered_data3$trivySeverity) & is.na(filtered_data3$grypeSeverity)), ]
+
+#If we want to get rid of Grype's "unknown" classifications
+filtered_data4 <- filtered_data4[filtered_data3$grypeSeverity != "unknown", ]
+
+```
+
+```{r}
+view(filtered_data4)
+```
+
+```{r}
+# Specify the directory path
+directory_path <- here("02_Preprocessing", "02c_tables", "04_product")
+
+output_name <- "severityComparison_differences.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(filtered_data4, file = file_path, row.names = FALSE)
+```
+

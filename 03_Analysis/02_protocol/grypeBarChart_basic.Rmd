@@ -1,0 +1,69 @@
+---
+title: "grypeBarChart_basic"
+author: "Gabe Cowley"
+date: "2023-07-11"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(gtools)
+```
+
+
+```{r}
+# To call the appropriate Grype version folders that hold the images
+grype_path <-
+  paste0("YOUR PATH",
+         "reu-2023-cloud-tools/03_Analysis/01_input/Grype/")
+
+grype_list <- list.files(grype_path)
+
+values_to_remove <- c("G_X.XX.X")
+
+# Remove specific values from grype_list
+grype_list <- grype_list[!grype_list %in% values_to_remove]
+
+grype_list <- mixedsort(grype_list)
+
+totalVulnerabilityCount <-
+  vector("list", length(grype_list))  # Initialize as a list
+
+for (i in seq_along(grype_list)) {
+  grype_version <- grype_list[i]
+  
+  # Read the CSV file
+  csv_file_path <-
+    paste0(grype_path, grype_version, "/master_dataGrype.csv")
+  data <-
+    read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum of the third column
+  column_sum <- sum(as.numeric(data$count))
+  
+  # Store the values in a mini-vector
+  totalVulnerabilityCount[[i]] <-
+    c(grype_version = grype_version, column_sum = column_sum)
+}
+
+```
+
+```{r}
+# Create Visual
+# Convert totalVulnerabilityCount list to a data frame
+df <- do.call(rbind, totalVulnerabilityCount)
+df <- as.data.frame(df, stringsAsFactors = FALSE)
+
+# Convert the totalVulnerabilityCount list to a data frame
+df$column_sum <- as.numeric(df$column_sum)
+
+# Create a bar chart
+ggplot(df, aes(x = grype_version, y = column_sum)) +
+  geom_bar(stat = "identity", fill = "darkorange") +
+  xlab("Grype Version") +
+  ylab("Total Vulnerability Count") +
+  ggtitle("Vulnerability Count by Grype Version") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90)) +  scale_y_continuous(limits = c(0, max(df$column_sum)))
+```
+

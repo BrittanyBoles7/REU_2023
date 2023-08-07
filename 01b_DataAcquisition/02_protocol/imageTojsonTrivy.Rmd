@@ -1,0 +1,45 @@
+---
+title: "imageTojsonTrivy"
+author: "Gabe Cowley"
+date: "2023-07-10"
+output: html_document
+---
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(data.table)
+library(here)
+```
+
+```{r}
+trivy_path = paste0("YOUR FILE PATH","reu-2023-cloud-tools/01a_ToolAcquisition/Trivy/")
+
+#gets list of all trivy versions
+trivy_list <- list.files(trivy_path)
+
+# WE KNOW THIS IS BAD (THERE'S AN EXPLICITLY MENTIONED PASSWORD)
+docker_images_output <- system("echo YOUR_PASSWORD_FOR_DOCKER | sudo -S docker images --format '{{.Repository}}:{{.Tag}}'", intern = TRUE)
+
+```
+
+```{r}
+#for each Trivy version run each docker image through them and save results as json
+for (trivy_version in trivy_list) {
+  trivy_version_filepath = paste0(trivy_path, trivy_version)
+  print(trivy_version)
+  for (i in 1:length(docker_images_output)) {
+    # The particular image we're working with
+    image <- docker_images_output[i]
+    
+   # What we want to name our output files
+    output_name <- paste0("YOUR FILE PATH","/reu-2023-cloud-tools/01b_DataAcquisition/04_product/Trivy/", trivy_version, "/", image,".json")
+   
+   # Initializing Trivy
+   command <- paste("echo YOUR_PASSWORD | sudo -S", trivy_version_filepath, "image -f json -o", output_name, image)
+   
+   # Execute the command
+   output <- system(command, intern = TRUE)
+  }
+}
+```

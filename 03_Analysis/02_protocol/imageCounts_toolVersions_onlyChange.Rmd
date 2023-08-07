@@ -1,0 +1,414 @@
+---
+title: "imageCounts_toolVersions"
+author: "Gabe Cowley"
+date: "2023-07-26"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(gtools)
+library(purrr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+cvelist <- read.csv(here("02_Preprocessing", "02c_onlyCVEs", "03_incremental", "cvesIdentified.csv"))
+
+grype_list <- list.files(paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/"))
+trivy_list <- list.files(paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Trivy/"))
+```
+
+```{r}
+# Creating lists of all versions, and adding in the release dates, we looked up and added each of these manually. 
+grype_versions <- list(list("G_X.XX.X", as.Date("Year-month-day")))
+trivy_versions <- list(list("T_X.XX.X", as.Date("Year-month-day")))
+```
+
+```{r}
+values_to_removeGrype <- c("G_X.X.X")
+
+# Filter grype_versions based on values_to_removeGrype
+grype_versions <- grype_versions[!sapply(grype_versions, function(x) x[[1]]) %in% values_to_removeGrype]
+
+# Filter trivy_versions based on values_to_removeGrype
+trivy_versions <- trivy_versions[!sapply(trivy_versions, function(x) x[[1]]) %in% values_to_removeTrivy]
+```
+
+```{r}
+# Create an empty dataframe with three columns: vulnerabilityID, version (toolVersion), and count
+vulnerabilityCounts_grype <- data.frame(
+  imageName = character(),
+  toolVersion = character(),
+  count = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (i in 1:length(grype_versions)) {
+  grype_version <- grype_versions[[i]][[1]]
+  
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_grype <- df_grype[, c("imageName", "count")]
+  
+  # Get the version and date
+  grype_version <- grype_versions[[i]][[1]]
+  version_date <- grype_versions[[i]][[2]]
+  grype_combo <- paste0(grype_version, " (", version_date, ")")
+  
+  # Add the grype_version column to the df_grype dataframe
+  df_grype$toolVersion <- grype_combo
+  
+  # Combine the data with the existing vulnerabilityCounts dataframe
+  vulnerabilityCounts_grype <-
+    rbind(vulnerabilityCounts_grype, df_grype)
+}
+
+imageCounts_grype <- vulnerabilityCounts_grype %>%
+  group_by(imageName, toolVersion) %>%
+  summarize(count = sum(count))
+
+# # For when a tool version finds no vulnerabilities, I replace the count "NA" with 0.
+# vulnerabilityCounts_grype <- imageCounts_grype %>%
+#   left_join(vulnerabilityCounts_grype, by = c("vulnerabilityID", "toolVersion")) %>%
+#   replace_na(list(count = 0))
+#
+# # Reorder the columns to "vulnerabilityID", "version", "count"
+# vulnerabilityCounts_grype <- vulnerabilityCounts_grype %>%
+#   group_by(vulnerabilityID, toolVersion) %>%
+#   summarize(count = sum(count)) %>%
+#   ungroup() %>%
+#   mutate(version_order = as.numeric(sub("G_0\\.(\\d+).*", "\\1", toolVersion))) %>%
+#   arrange(vulnerabilityID, version_order) %>%
+#   select(vulnerabilityID, toolVersion, count)
+
+```
+
+```{r}
+# Create an empty dataframe with three columns: vulnerabilityID, version (toolVersion), and count
+vulnerabilityCounts_trivy <- data.frame(
+  imageName = character(),
+  toolVersion = character(),
+  count = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (i in 1:length(trivy_versions)) {
+  trivy_version <- trivy_versions[[i]][[1]]
+  
+  df_trivy <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Trivy",
+        trivy_version,
+        "master_dataTrivy.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_trivy <- df_trivy[, c("imageName", "count")]
+  
+  # Get the version and date
+  trivy_version <- trivy_versions[[i]][[1]]
+  version_date <- trivy_versions[[i]][[2]]
+  trivy_combo <- paste0(trivy_version, " (", version_date, ")")
+  
+  # Add the trivy_version column to the df_trivy dataframe
+  df_trivy$toolVersion <- trivy_combo
+  
+  # Combine the data with the existing vulnerabilityCounts dataframe
+  vulnerabilityCounts_trivy <-
+    rbind(vulnerabilityCounts_trivy, df_trivy)
+}
+
+imageCounts_trivy <- vulnerabilityCounts_trivy %>%
+  group_by(imageName, toolVersion) %>%
+  summarize(count = sum(count))
+```
+
+```{r}
+# Create a sequence of two - month intervals
+intervals <-
+  seq(as.Date("2022-01-31"), as.Date("2023-07-13"), by = "2 months")
+
+# Function to convert character date to Date format (with handling for missing values)
+convert_to_date <- function(date_str) {
+  if (!is.na(date_str) && grepl("\\d{4}-\\d{2}-\\d{2}", date_str)) {
+    return(as.Date(date_str))
+  } else {
+    return(NA)
+  }
+}
+
+# Function to find the most recent version before a given date
+find_version_before_date <-
+  function(versions, release_dates, target_date) {
+    recent_version <- NULL
+    for (i in seq_along(release_dates)) {
+      release_date <- convert_to_date(release_dates[[i]])
+      if (!is.na(release_date) && release_date <= target_date) {
+        recent_version <- versions[[i]][[1]]
+      } else {
+        break
+      }
+    }
+    return(recent_version)
+  }
+
+# Function to find the most recent versions before each interval
+find_version_before_interval <- function(tool_versions, intervals) {
+  # Extract the list of release dates from the tool_versions list and convert to Date format
+  release_dates <-
+    lapply(tool_versions, function(x)
+      convert_to_date(x[[2]]))
+  
+  result <- list()
+  for (interval in intervals) {
+    recent_version <-
+      find_version_before_date(tool_versions, release_dates, interval)
+    result[[as.character(interval)]] <- recent_version
+  }
+  return(result)
+}
+```
+
+```{r}
+# Call the function to find the most recent Grype versions before each interval
+grype_versions_result <-
+  find_version_before_interval(grype_versions, intervals)
+
+grype_versions_release_date <- c()
+
+for (i in 1:length(grype_versions_result)) {
+  grype_version <- grype_versions_result[[i]]
+  for (j in 1:length(grype_versions)) {
+    if (grype_versions[[j]][[1]] == grype_version) {
+      # Finds the corresponding date to the grype version
+      grype_version_release_date <- grype_versions[[j]][[2]]
+      # Appends the corresponding version to our list of release dates
+      grype_versions_release_date[[i]] <- grype_version_release_date
+      break
+    }
+  }
+}
+
+# Update the name of each entry in grype_versions_result
+for (i in seq_len(length(grype_versions_result))) {
+  grype_versions_result[[i]] <-
+    paste0(grype_versions_result[[i]],
+           " (",
+           grype_versions_release_date[[i]],
+           ")")
+}
+
+# Filter imageCounts_grype based on matching toolVersions
+filtered_imageCounts_grype <-
+  subset(imageCounts_grype, toolVersion %in% grype_versions_result)
+```
+
+```{r}
+# Call the function to find the most recent Trivy versions before each interval
+trivy_versions_result <-
+  find_version_before_interval(trivy_versions, intervals)
+
+trivy_versions_release_date <- c()
+
+for (i in 1:length(trivy_versions_result)) {
+  trivy_version <- trivy_versions_result[[i]]
+  for (j in 1:length(trivy_versions)) {
+    if (trivy_versions[[j]][[1]] == trivy_version) {
+      # Finds the corresponding date to the trivy version
+      trivy_version_release_date <- trivy_versions[[j]][[2]]
+      # Appends the corresponding version to our list of release dates
+      trivy_versions_release_date[[i]] <- trivy_version_release_date
+      break
+    }
+  }
+}
+
+# Update the name of each entry in trivy_versions_result
+for (i in seq_len(length(trivy_versions_result))) {
+  trivy_versions_result[[i]] <-
+    paste0(trivy_versions_result[[i]],
+           " (",
+           trivy_versions_release_date[[i]],
+           ")")
+}
+
+# Filter imageCounts_trivy based on matching toolVersions
+imageCounts_trivy <-
+  subset(imageCounts_trivy, toolVersion %in% trivy_versions_result)
+```
+
+```{r}
+
+# To determine which version of Grype and which version of Trivy were the go-to at a particular instance in time.
+version_pairs <- c()
+
+# Where we will add the merged values to our dataframe
+merged_data <- data.frame(imageName = character(),
+                                        toolVersionGrype = character(),
+                                        toolVersionTrivy = character(),
+                                        countGrype = integer(),
+                                        countTrivy = integer(),
+                                        interval = Date(),
+                                        stringsAsFactors = FALSE)
+
+
+if (length(grype_versions_result) == length(trivy_versions_result)) {
+  # Iterate through each pair of Grype and Trivy and record that.
+  for (i in seq_len(length(grype_versions_result))) {
+    grype_version <- grype_versions_result[[i]]
+    trivy_version <- trivy_versions_result[[i]]
+    
+    temporary_grype_holder <- imageCounts_grype %>%
+      filter(toolVersion == grype_version)
+    temporary_trivy_holder <- imageCounts_trivy %>%
+      filter(toolVersion == trivy_version)
+    
+    # Merge the data frames based on the "vulnerabilityID" column
+    temporary_merge <- merge(temporary_grype_holder, temporary_trivy_holder, by = "imageName", all = TRUE)
+    
+    colnames(temporary_merge)[colnames(temporary_merge) == "toolVersion.x"] <- "toolVersionGrype"
+    colnames(temporary_merge)[colnames(temporary_merge) == "toolVersion.y"] <- "toolVersionTrivy"
+    colnames(temporary_merge)[colnames(temporary_merge) == "count.x"] <- "countGrype"
+    colnames(temporary_merge)[colnames(temporary_merge) == "count.y"] <- "countTrivy"
+    
+    temporary_merge$interval <- intervals[[i]]
+
+    # Fill NAs in the toolVersion.x column with grype_version
+    temporary_merge[is.na(temporary_merge$toolVersionGyrpe), "toolVersionGrype"] <- grype_version
+    
+    # Fill NAs in the toolVersion.y column with trivy_version
+    temporary_merge[is.na(temporary_merge$toolVersionTrivy), "toolVersionTrivy"] <- trivy_version
+    
+    # Fill NAs in the count.x column with 0
+    temporary_merge[is.na(temporary_merge$countGrype), "countGrype"] <- 0
+    
+    # Fill NAs in the count.y column with 0
+    temporary_merge[is.na(temporary_merge$countTrivy), "countTrivy"] <- 0
+    
+    # Calculate the difference between countGrype and countTrivy and add it as a new column
+    temporary_merge$diffCount <- temporary_merge$countGrype - temporary_merge$countTrivy
+    
+    #Merge the new version pairs with the comprehensive dataframe
+    merged_data <- rbind(merged_data, temporary_merge)
+    
+    version_pair <- list(grype_version = grype_version, trivy_version = trivy_version)
+    
+    version_pairs[[i]] <- version_pair
+  }
+}
+
+```
+
+
+
+```{r}
+# Create a plot where the y-axis is total count for the CVEs and the x-axis is
+# version.  Each line represents an individual CVE and is slightly
+# transparent.
+
+through_time_alpha_grype <- function(d) {
+  d %>%
+    mutate(toolVersion = factor(toolVersion, levels = unique(arrange(
+      d, as.numeric(gsub("G_0.(\\d+).*", "\\1", toolVersion))
+    )$toolVersion))) %>%
+    ggplot(aes(x = toolVersion, y = count)) +
+    geom_line(
+      mapping = aes(group = imageName),
+      color = "black",
+      alpha = 0.2,
+      size = 0.5
+    ) +
+    labs(y = "Vulnerability Count", x = "") +
+    theme(
+      axis.line = element_line(
+        size = 0.65,
+        color = "black",
+        linetype = 1
+      ),
+      axis.text.x = element_text(angle = 65, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      plot.margin = unit(c(7, 5, 10, 1), "pt"),
+      plot.caption = element_text(hjust = 0)
+    ) +
+    scale_x_discrete(expand = expansion(c(0.01, 0))) +
+    labs(caption = "Image's Vulnerability Count Variation over Grype Versions")
+}
+
+through_time_alpha_trivy <- function(d) {
+  d %>%
+    mutate(toolVersion = factor(toolVersion, levels = unique(arrange(
+      d, as.numeric(gsub("T_0.(\\d+).*", "\\1", toolVersion))
+    )$toolVersion))) %>%
+    ggplot(aes(x = toolVersion, y = count)) +
+    geom_line(
+      mapping = aes(group = imageName),
+      color = "black",
+      alpha = 0.2,
+      size = 0.5
+    ) +
+    labs(y = "Vulnerability Count", x = "") +
+    theme(
+      axis.line = element_line(
+        size = 0.65,
+        color = "black",
+        linetype = 1
+      ),
+      axis.text.x = element_text(angle = 65, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      plot.margin = unit(c(7, 5, 10, 1), "pt"),
+      plot.caption = element_text(hjust = 0)
+    ) +
+    scale_x_discrete(expand = expansion(c(0.01, 0))) +
+    labs(caption = "Image's Vulnerability Count Variation over Trivy Versions")
+}
+
+
+through_time_alpha_merged <- function(d) {
+  d %>%
+    ggplot(aes(x = interval, y = diffCount)) +
+    geom_line(
+      mapping = aes(group = imageName),
+      color = "black",
+      alpha = 0.2,
+      size = 0.5
+    ) +
+    labs(y = "Difference of Vulnerability Count", x = "") +
+    theme(
+      axis.line = element_line(
+        size = 0.65,
+        color = "black",
+        linetype = 1
+      ),
+      axis.text.x = element_text(angle = 65, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      plot.margin = unit(c(7, 5, 10, 1), "pt"),
+      plot.caption = element_text(hjust = 0)
+    ) +
+    scale_x_date(expand = expansion(c(0.01, 0))) +
+    labs(caption = "Total Difference of Vulnerability Count Over Time")
+}
+
+print(through_time_alpha_grype(imageCounts_grype))
+print(through_time_alpha_trivy(imageCounts_trivy))
+print(through_time_alpha_merged(merged_data))
+```
+

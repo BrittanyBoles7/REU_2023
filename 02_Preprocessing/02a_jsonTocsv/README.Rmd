@@ -1,0 +1,20 @@
+---
+title: "README"
+author: "Gabe Cowley"
+date: "2023-06-20"
+output: html_document
+---
+
+For Trivy, one can get the .json output by simply typing in:
+trivy image -f json -o desired_output_file_name.json image_name
+
+For Grype, althought there was the possiblity of getting the Grype output in a .csv file format, it was actually more overall efficient to first get it in .json output and then get a .csv format after that. With the .csv format, all of the information for each CVE was put in one "box" with several spaces seperating each bit of information. Even this was somewhat inconsistent depending on if the vulnerability had been fixed in some version or not. With json, you could simply look up specific elements of the dictionary, making the information acquisition more uniform and much easier.
+
+We used this command:
+grype image_name:latest -o json > report.json
+
+We also discovered that by using "image_name:latest" on the image name, that made sure that the images were up to date, rather than just typing "image_name".
+
+Finally, it turns out that certain vulnerabilities reported by Grype have "relatedVulnerabilities" corresponding to them.
+
+Currently, our programs require that the user input each image name separately to create seperate files, but in the future one may desire to shift the program's use such that one puts in a vector c("image_name1", "image_name2", "image_name3", ...)

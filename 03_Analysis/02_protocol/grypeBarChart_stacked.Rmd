@@ -1,0 +1,161 @@
+---
+title: "grypeBarChart_stacked"
+author: "Gabe Cowley"
+date: "2023-07-11"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(gtools)
+library(purrr)
+```
+
+```{r}
+# To call the appropriate Grype version folders that hold the images
+grype_path <- paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/01_input/Grype/")
+
+grype_list <- list.files(grype_path)
+
+#remove files uninterested in 
+values_to_remove <- c("G_X.X.X")
+
+# Remove specific values from grype_list
+grype_list <- grype_list[!grype_list %in% values_to_remove]
+
+grype_list <- mixedsort(grype_list)
+
+totalVulnerabilityCount <- vector("list", length(grype_list))  # Initialize as a list
+
+for (i in seq_along(grype_list)) {
+  grype_version <- grype_list[i]
+  
+  # Read the CSV file
+  csv_file_path <- paste0(grype_path, "/master_dataGrype.csv")
+  data <- read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum for each
+  column_sum_total <- sum(as.numeric(data$count))
+  column_sum_critical <- sum(as.numeric(data$count[data$severity == "Critical"]))
+  column_sum_high <- sum(as.numeric(data$count[data$severity == "High"]))
+  column_sum_medium <- sum(as.numeric(data$count[data$severity == "Medium"]))
+  column_sum_low <- sum(as.numeric(data$count[data$severity == "Low"]))
+  column_sum_negligible <- sum(as.numeric(data$count[data$severity == "Negligible"]))
+  column_sum_unknown <- sum(as.numeric(data$count[data$severity == "Unknown"]))
+  
+  # Store the values in a mini-vector
+  totalVulnerabilityCount[[i]] <- c(grype_version = grype_version, column_sum_critical = column_sum_critical, column_sum_high = column_sum_high, column_sum_medium = column_sum_medium, column_sum_low = column_sum_low, column_sum_negligible = column_sum_negligible, column_sum_unknown = column_sum_unknown)
+}
+
+```
+
+```{r}
+# Create an empty list to store the severity counts
+# Create an empty list to store the severity counts
+severity_counts <- list()
+
+# Iterate through the totalVulnerabilityCount list
+for (i in 1:length(totalVulnerabilityCount)) {
+  # Extract the severity counts for each iteration
+  severity_counts[[i]] <- unlist(totalVulnerabilityCount[[i]][2:7])
+}
+
+# Combine the values from each list into a single row
+combined_data <- unlist(severity_counts)
+library(tidyverse)
+library(gtools)
+library(purrr)
+```
+
+
+```{r}
+# To call the appropriate Grype version folders that hold the images
+grype_path <- paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/01_input/Grype/")
+
+grype_list <- list.files(grype_path)
+
+values_to_remove <- c("G_X.X.X")
+
+# Remove specific values from grype_list
+grype_list <- grype_list[!grype_list %in% values_to_remove]
+
+grype_list <- mixedsort(grype_list)
+
+totalVulnerabilityCount <- vector("list", length(grype_list))  # Initialize as a list
+
+for (i in seq_along(grype_list)) {
+  grype_version <- grype_list[i]
+  
+  # Read the CSV file
+  csv_file_path <- paste0(grype_path, grype_version, "master_dataGrype.csv")
+  data <- read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum for each
+  column_sum_total <- sum(as.numeric(data$count))
+  column_sum_critical <- sum(as.numeric(data$count[data$severity == "Critical"]))
+  column_sum_high <- sum(as.numeric(data$count[data$severity == "High"]))
+  column_sum_medium <- sum(as.numeric(data$count[data$severity == "Medium"]))
+  column_sum_low <- sum(as.numeric(data$count[data$severity == "Low"]))
+  column_sum_negligible <- sum(as.numeric(data$count[data$severity == "Negligible"]))
+  column_sum_unknown <- sum(as.numeric(data$count[data$severity == "Unknown"]))
+  
+  # Store the values in a mini-vector
+  totalVulnerabilityCount[[i]] <- c(grype_version = grype_version, column_sum_critical = column_sum_critical, column_sum_high = column_sum_high, column_sum_medium = column_sum_medium, column_sum_low = column_sum_low, column_sum_negligible = column_sum_negligible, column_sum_unknown = column_sum_unknown)
+}
+```
+
+```{r}
+# Create an empty list to store the severity counts
+# Create an empty list to store the severity counts
+severity_counts <- list()
+
+# Iterate through the totalVulnerabilityCount list
+for (i in 1:length(totalVulnerabilityCount)) {
+  # Extract the severity counts for each iteration
+  severity_counts[[i]] <- unlist(totalVulnerabilityCount[[i]][2:7])
+}
+
+# Combine the values from each list into a single row
+combined_data <- unlist(severity_counts)
+
+```
+
+```{r}
+displayed_data <- data.frame(
+  Grype_Versions = c(rep(grype_list, each = 6)),
+  Severity = c(rep(
+    c("Critical", "High", "Medium", "Low", "Negligible", "Unknown"),
+    times = length(grype_list)
+  )),
+  Frequency = combined_data
+)
+
+displayed_data$Severity <-
+  factor(
+    displayed_data$Severity,
+    levels = c("Critical", "High", "Medium", "Low", "Negligible", "Unknown")
+  )
+
+ggplot(displayed_data,
+       aes(x = Grype_Versions, y = Frequency, fill = Severity)) +
+  geom_col() +
+  geom_text(
+    aes(label = Frequency),
+    size = 1.5,
+    hjust = 0.5,
+    vjust = 3,
+    position = "stack"
+  ) +
+  theme(axis.text.x = element_text(angle = 90))
+
+```
+
+```{r}
+# Assuming displayed_data is the dataframe containing the vulnerability data
+critical_count <-
+  displayed_data$Frequency[displayed_data$Severity == "Critical" &
+                             displayed_data$Grype_Versions == "G_X.XX.X"]
+
+print(critical_count)
+
+```
+

@@ -1,0 +1,119 @@
+---
+title: "EquivalenciesUnveiled"
+author: "Gabe Cowley"
+date: "2023-06-26"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+```
+
+Please note about this program that at a certain point it may reduplicate columns for when one vulnerabilityID has several related vulnerabilities. The severity rating may very well be wrong, since it only replaces the vulnerabilityID with the correct information
+
+```{r}
+#Identify Equivalencies
+
+# Step 1: Load the CSV library
+library_data <- read.csv(here("02_Preprocessing", "02a_jsonTocsv", "03_incremental", "connectedVulnerabilityIDs.csv"), stringsAsFactors = FALSE)
+
+# Step 2: Retrieve the vulnerabilities from Grype and Trivy
+df_trivy <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Trivy", "master_dataTrivy.csv"))
+df_grype <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Grype", "master_dataGrype.csv"))
+
+# Step 3: Process the vulnerabilities
+grype_vulnerabilities <- df_grype[, c("imageName", "vulnerabilityID", "count", "severity")]
+trivy_vulnerabilities <- df_trivy[, c("imageName", "vulnerabilityID", "count", "severity")]
+
+# Step 4: Perform the comparison and replace pseudo-different vulnerabilities
+
+# For the amount of entries we add when there are multiple related vulnerabilities
+increased_length <- 0
+
+# WHILE STATEMENT
+i <- 1
+while (i <= nrow(grype_vulnerabilities)) {
+  # Check if the Grype vulnerability ID has an equivalent entry in the library
+  vulnerability_id <- grype_vulnerabilities$vulnerabilityID[i]
+  
+  # Matching index is the place in the equivalencies library where the relation is held
+  matching_index <- which(library_data$main_vulnerability == vulnerability_id)
+  
+  if (length(matching_index) > 0) {
+    # Append the remaining entries to grype_vulnerabilities if there are several related vulnerabilities, rather than just one
+    grype_vulnerabilities$vulnerabilityID[i] <- library_data$related_vulnerability[matching_index[1]]
+    
+    if (length(matching_index) > 1) {
+      for (j in 2:length(matching_index)) {
+        new_row <- data.frame(grype_vulnerabilities[i, ])
+        new_row$vulnerabilityID <- library_data$related_vulnerability[matching_index[j]]
+        
+        # Calculate the insert index based on the increased length
+        insert_index <- i + j - 1 + increased_length
+        
+        # Insert the new row at the calculated index
+        grype_vulnerabilities <- rbind(grype_vulnerabilities[1:insert_index, ],
+                                       new_row,
+                                       grype_vulnerabilities[(insert_index + 1):nrow(grype_vulnerabilities), ])
+        
+        # Increment the increased_length variable to account for the newly inserted row
+        increased_length <- increased_length + 1
+      }
+    }
+  }
+  
+  # Move to the next row
+  i <- i + 1
+}
+
+df_grype <- grype_vulnerabilities
+```
+
+```{r}
+
+#Compile the results
+
+# Remove the "severity" column from the DataFrames
+df_trivy <- df_trivy[, -which(names(df_trivy) == "severity")]
+df_grype <- df_grype[, -which(names(df_grype) == "severity")]
+
+merged_df <- full_join(df_trivy, df_grype, by = "vulnerabilityID")
+
+# Sum the count columns and remove the "imageName" columns
+merged_df <- merged_df %>%
+  group_by(vulnerabilityID) %>%
+  summarize(trivyCount = sum(count.x, na.rm = TRUE),
+            grypeCount = sum(count.y, na.rm = TRUE)) %>%
+  ungroup()
+
+# Rename the columns
+#colnames(merged_df)[which(names(merged_df) == "count.x")] <- "trivyCount"
+#colnames(merged_df)[which(names(merged_df) == "count.y")] <- "grypeCount"
+
+# Remove duplicates based on vulnerabilityID column
+#merged_df <- merged_df[!duplicated(merged_df$vulnerabilityID), ]
+
+# Sort the dataframe by vulnerabilityID
+merged_df <- arrange(merged_df, desc(trivyCount))
+
+# Replace NA values with 0
+merged_df$trivyCount[is.na(merged_df$trivyCount)] <- 0
+merged_df$grypeCount[is.na(merged_df$grypeCount)] <- 0
+
+# Reset row names
+rownames(merged_df) <- NULL
+```
+
+```{r}
+#Specify the directory path
+directory_path <- here("02_Preprocessing", "02c_tables", "04_product")
+
+output_name <- "countComparisonClearer.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(merged_df, file = file_path, row.names = FALSE)
+```

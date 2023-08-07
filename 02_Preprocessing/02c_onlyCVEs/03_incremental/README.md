@@ -1,0 +1,1 @@
+Here there should be a csv file storing a list of unique vulnerabilities found in the images fun so far. 

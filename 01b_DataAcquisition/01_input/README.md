@@ -1,0 +1,1 @@
+Here should be the Docker Images you want to run through the different versions of Grype and Trivy. 

@@ -1,0 +1,266 @@
+---
+title: "filterForCVEs"
+author: "Gabe Cowley"
+date: "2023-07-11"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(dplyr)
+```
+#162 Fix uses Grype when Trivy is needed
+```{r Filter Grype}
+#Identify Equivalencies
+
+# Step 1: Load the CSV library
+library_data <-
+  read.csv(
+    here(
+      "02_Preprocessing",
+      "02a_jsonTocsv",
+      "03_incremental",
+      "connectedVulnerabilityIDs.csv"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+# Where we store all of the CVEs we've identified
+cvesIdentified <-
+  read.csv(here(
+    "02_Preprocessing",
+    "02c_onlyCVEs",
+    "03_incremental",
+    "cvesIdentified.csv"
+  ))
+
+# Step 2: Load all the Grype & Trivy versions
+grype_path = paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/")
+
+grype_list <- list.files(grype_path)
+
+for (grype_version in grype_list) {
+  print(grype_version) # Simply to see where we are at in the process
+  
+  # Step 2: Retrieve the vulnerabilities from Grype
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing",
+        "02c_onlyCVEs",
+        "01_input",
+        "Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  
+  # Step 3: Process the vulnerabilities
+  grype_vulnerabilities <-
+    df_grype[, c("imageName", "vulnerabilityID", "severity", "count")]
+  
+  # Step 4: Perform the comparison and replace pseudo-different vulnerabilities
+  # For the amount of entries we add when there are multiple related vulnerabilities
+  increased_length <- 0
+  
+  # WHILE STATEMENT
+  i <- 1
+  while (i <= nrow(grype_vulnerabilities)) {
+    # Check if the Grype vulnerability ID has an equivalent entry in the library
+    vulnerability_id <- grype_vulnerabilities$vulnerabilityID[i]
+    
+    # Matching index is the place in the equivalencies library where the relation is held
+    matching_index <-
+      which(library_data$main_vulnerability == vulnerability_id)
+    
+    # For one-to-one vulnerability ID relationship
+    if (length(matching_index) > 0) {
+      # Append the remaining entries to grype_vulnerabilities if there are several related vulnerabilities, rather than just one
+      grype_vulnerabilities$vulnerabilityID[i] <-
+        library_data$related_vulnerability[matching_index[1]]
+      grype_vulnerabilities$severity[i] <-
+        library_data$severity[matching_index[1]]
+      
+      # For a many to one correspondence of vulnerability IDs (such as 3 CVEs that correspond to one GHSA)
+      if (length(matching_index) > 1) {
+        for (j in 2:length(matching_index)) {
+          new_row <- data.frame(grype_vulnerabilities[i, ])
+          new_row$vulnerabilityID <-
+            library_data$related_vulnerability[matching_index[j]]
+          new_row$severity <-
+            library_data$severity[matching_index[j]]
+          
+          # Calculate the insert index based on the increased length
+          insert_index <- i + j - 1 + increased_length
+          
+          # Insert the new row at the calculated index
+          grype_vulnerabilities <-
+            rbind(grype_vulnerabilities[1:insert_index, ],
+                  new_row,
+                  grype_vulnerabilities[(insert_index + 1):nrow(grype_vulnerabilities), ])
+          
+          # Increment the increased_length variable to account for the newly inserted row
+          increased_length <- increased_length + 1
+        }
+      }
+    }
+    
+    # Move to the next row
+    i <- i + 1
+  }
+  
+  df_grype <- grype_vulnerabilities
+  
+  # Filter out rows where vulnerabilityID doesn't start with "CVE"
+  df_grype <- df_grype %>%
+    filter(str_starts(vulnerabilityID, "CVE") |
+             is.na(vulnerabilityID)) %>%
+    group_by(imageName, vulnerabilityID, severity) %>%
+    summarise(count = sum(count)) %>%
+    ungroup()
+  
+  # Brief interlude to add the vulnerability (if new) to our cvesIdentified list.
+  
+  # Convert the vulnerabilityID column in cvesIdentified to character
+  cvesIdentified$vulnerabilityID <-
+    as.character(cvesIdentified$vulnerabilityID)
+  # Step 5: Check for new vulnerabilityIDs and add them to cvesIdentified if not already present
+  new_vulnerabilities <-
+    anti_join(df_grype, cvesIdentified, by = "vulnerabilityID") %>%
+    select(vulnerabilityID)
+  
+  # If there are new vulnerabilities, add them to cvesIdentified
+  if (nrow(new_vulnerabilities) > 0) {
+    cvesIdentified <- rbind(cvesIdentified, new_vulnerabilities)
+    
+    # Remove duplicates from cvesIdentified
+    cvesIdentified <- distinct(cvesIdentified, .keep_all = TRUE)
+    
+    # Arrange cvesIdentified in alphabetical order based on vulnerabilityID
+    cvesIdentified <- arrange(cvesIdentified, vulnerabilityID)
+  }
+  
+  # Specify the file path along with the directory path
+  file_path_filteredCVEList <-
+    here("02_Preprocessing/02c_onlyCVEs/04_product/Grype/master_dataGrype.csv")
+  
+  # Save the data frame as a CSV file
+  write.csv(df_grype, file = file_path_filteredCVEList, row.names = FALSE)
+}
+```
+
+```{r Filter Trivy}
+trivy_path = paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/")
+
+trivy_list <- list.files(trivy_path)
+
+for (trivy_version in trivy_list) {
+  print(trivy_version) # Simply to see where we are at in the process
+  
+  # Step 2: Retrieve the vulnerabilities from Trivy
+  df_trivy <-
+    read.csv(
+      here(
+        "02_Preprocessing",
+        "02c_onlyCVEs",
+        "01_input",
+        "Trivy",
+        trivy_version,
+        "master_dataTrivy.csv"
+      )
+    )
+  
+  # Step 3: Process the vulnerabilities
+  trivy_vulnerabilities <-
+    df_trivy[, c("imageName", "vulnerabilityID", "severity", "count")]
+  
+  # Step 4: Perform the comparison and replace pseudo-different vulnerabilities
+  # For the amount of entries we add when there are multiple related vulnerabilities
+  increased_length <- 0
+  
+  # WHILE STATEMENT
+  i <- 1
+  while (i <= nrow(trivy_vulnerabilities)) {
+    # Check if the Trivy vulnerability ID has an equivalent entry in the library
+    vulnerability_id <- trivy_vulnerabilities$vulnerabilityID[i]
+    
+    # Matching index is the place in the equivalencies library where the relation is held
+    matching_index <-
+      which(library_data$main_vulnerability == vulnerability_id)
+    
+    # For one-to-one vulnerability ID relationship
+    if (length(matching_index) > 0) {
+      # Append the remaining entries to grype_vulnerabilities if there are several related vulnerabilities, rather than just one
+      trivy_vulnerabilities$vulnerabilityID[i] <-
+        library_data$related_vulnerability[matching_index[1]]
+      trivy_vulnerabilities$severity[i] <-
+        library_data$severity[matching_index[1]]
+      
+      # For a many to one correspondence of vulnerability IDs (such as 3 CVEs that correspond to one GHSA)
+      if (length(matching_index) > 1) {
+        for (j in 2:length(matching_index)) {
+          new_row <- data.frame(trivy_vulnerabilities[i,])
+          new_row$vulnerabilityID <-
+            library_data$related_vulnerability[matching_index[j]]
+          new_row$severity <-
+            library_data$severity[matching_index[j]]
+          
+          # Calculate the insert index based on the increased length
+          insert_index <- i + j - 1 + increased_length
+          
+          # Insert the new row at the calculated index
+          trivy_vulnerabilities <-
+            rbind(trivy_vulnerabilities[1:insert_index,],
+                  new_row,
+                  trivy_vulnerabilities[(insert_index + 1):nrow(grype_vulnerabilities),])
+          
+          
+          # Increment the increased_length variable to account for the newly inserted row
+          increased_length <- increased_length + 1
+        }
+      }
+    }
+    
+    # Move to the next row
+    i <- i + 1
+  }
+  
+  df_trivy <- trivy_vulnerabilities
+  
+  # Filter out rows where vulnerabilityID doesn't start with "CVE"
+  df_trivy <- df_trivy %>%
+    filter(str_starts(vulnerabilityID, "CVE") |
+             is.na(vulnerabilityID)) %>%
+    group_by(imageName, vulnerabilityID, severity) %>%
+    summarise(count = sum(count)) %>%
+    ungroup()
+  
+  # Step 5: Check for new vulnerabilityIDs and add them to cvesIdentified if not already present
+  new_vulnerabilities <-
+    anti_join(df_trivy, cvesIdentified, by = "vulnerabilityID") %>%
+    select(vulnerabilityID)
+  
+  # If there are new vulnerabilities, add them to cvesIdentified
+  if (nrow(new_vulnerabilities) > 0) {
+    cvesIdentified <- rbind(cvesIdentified, new_vulnerabilities)
+    
+    # Remove duplicates from cvesIdentified
+    cvesIdentified <- distinct(cvesIdentified, .keep_all = TRUE)
+    
+    # Arrange cvesIdentified in alphabetical order based on vulnerabilityID
+    cvesIdentified <- arrange(cvesIdentified, vulnerabilityID)
+  }
+  
+  # Specify the file path along with the directory path
+  file_path <-
+    here("02_Preprocessing/02c_onlyCVEs/04_product/Trivy/master_dataTrivy.csv")
+  file_path_cvesIdentified <-
+    here("02_Preprocessing/0s2c_onlyCVEs/03_incremental",
+         "cvesIdentified.csv")
+  
+  # Save the data frame as a CSV file
+  write.csv(df_trivy, file = file_path, row.names = FALSE)
+  write.csv(cvesIdentified, file = file_path_cvesIdentified, row.names = FALSE)
+}
+```

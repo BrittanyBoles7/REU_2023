@@ -1,0 +1,104 @@
+---
+title: "json_to_csvTrivy"
+output: html_document
+date: "2023-06-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+```{r setup}
+library(here)
+
+# Set the root directory using the here package
+root_dir <- here()
+
+library(jsonlite)
+#library(tidyverse)
+library(Dict)
+library(stringr)
+```
+
+```{r}
+# To call the appropriate Trivy version folders that hold the images
+trivy_path = paste0(
+  "YOUR PATH",
+  "/reu-2023-cloud-tools/02_Preprocessing/02a_jsonTocsv/01_input/Trivy/"
+)
+
+trivy_list <- list.files(trivy_path)
+```
+
+```{r}
+#for each version of trivy, each image, convert json files to csv
+for (trivy_version in trivy_list) {
+  print(trivy_version)
+  image_path = paste0(trivy_path, trivy_version, "/")
+  image_list <- list.files(image_path)
+  for (image in image_list) {
+    # Initialize data
+    json_data <-
+      tryCatch(
+        jsonlite::fromJSON(txt = readLines(
+          here(
+            "02_Preprocessing/02a_jsonTocsv/01_input/Trivy",
+            trivy_version,
+            image
+          )
+        )),
+        error = function(e)
+          NULL
+      )
+    # Initialize empty vectors to store the compiled values
+    packageName <- c()
+    vulnerabilityID <- c()
+    severity <- c()
+    
+    # Check if Vulnerabilities list is empty
+    if (length(json_data$Results$Vulnerabilities) == 0) {
+      # Handle the case when there are no vulnerabilities
+      # Set default values or perform any desired actions
+      packageName <- NA
+      vulnerabilityID <- NA
+      severity <- NA
+    } else {
+      # Iterate over each entry in the Vulnerabilities list
+      for (entry in json_data$Results$Vulnerabilities) {
+        # Extract the values for packageName, vulnerabilityID, and severity from the current entry
+        packageName_entry <- entry$PkgName
+        vulnerabilityID_entry <- entry$VulnerabilityID
+        severity_entry <- entry$Severity
+        
+        # Append the values to the respective vectors
+        packageName <- c(packageName, packageName_entry)
+        vulnerabilityID <- c(vulnerabilityID, vulnerabilityID_entry)
+        severity <- c(severity, severity_entry)
+      }
+    }
+    
+    # Combine the lists into a data frame
+    data <- data.frame(packageName, vulnerabilityID, severity)
+    
+    # Specify the directory path
+    directory_path <-
+      here("02_Preprocessing",
+           "02a_jsonTocsv",
+           "04_product",
+           "Trivy",
+           trivy_version)
+    
+    # Since the output isn't a json, that shouldn't be in the name
+    image_name <- str_remove(image, ".json")
+    
+    # Specify the output file name as a variable
+    output_name <- paste0(image_name, "Trivy.csv")
+    
+    # Concatenate the directory path and output file name
+    file_path <- here(directory_path, output_name)
+    
+    # Save the data frame as a CSV file in the specified directory
+    write.csv(data, file = file_path, row.names = FALSE)
+    
+  }
+}
+```

@@ -1,0 +1,37 @@
+---
+title: "countComparison_differences"
+author: "Gabe Cowley"
+date: "2023-06-19"
+output: html_document
+---
+```{r setup}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+# Read the CSV files
+df_total <- read.csv(here("02_Preprocessing", "02c_tables", "04_product", "countComparison.csv"))
+```
+
+```{r}
+filtered_data <- df_total[(df_total$trivyCount != df_total$grypeCount), ]
+```
+
+```{r}
+view(filtered_data)
+```
+
+```{r}
+# Specify the directory path
+directory_path <- here("02_Preprocessing", "02c_tables", "04_product")
+
+output_name <- "countComparison_differences.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(filtered_data, file = file_path, row.names = FALSE)
+```
+
