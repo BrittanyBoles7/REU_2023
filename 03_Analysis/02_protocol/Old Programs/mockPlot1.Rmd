@@ -1,0 +1,38 @@
+---
+title: "mockPlot1"
+author: "Gabe Cowley"
+date: "2023-06-20"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+```
+
+
+```{r}
+df_total <- read.csv(paste0("YOUR PATH","/03_Analysis/01_input/countComparison_differences.csv"))
+```
+
+
+```{r}
+# Create a new dataframe with vulnerabilityID, trivyCount, and grypeCount columns
+plot_data <- data.frame(vulnerabilityID = df_total$vulnerabilityID,
+                        trivyCount = df_total$trivyCount,
+                        grypeCount = df_total$grypeCount)
+
+# Reorder vulnerabilityID based on trivyCount in descending order
+plot_data$vulnerabilityID <- factor(plot_data$vulnerabilityID,
+                                    levels = plot_data$vulnerabilityID[order(-plot_data$trivyCount)])
+
+# Create the plot
+ggplot(plot_data, aes(x = vulnerabilityID)) +
+  geom_point(aes(y = trivyCount), color = "red", alpha = 0.5) +
+  geom_point(aes(y = grypeCount), color = "blue", alpha = 0.5) +
+  labs(title = "Vulnerability Count Comparison",
+       x = "Vulnerability ID",
+       y = "Count") +
+  theme_minimal()
+
+```

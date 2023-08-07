@@ -1,0 +1,63 @@
+---
+title: "trivyBarChart_basic"
+author: "Gabe Cowley"
+date: "2023-07-14"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(gtools)
+```
+
+
+```{r}
+# To call the appropriate Trivy version folders that hold the images
+trivy_path <- paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/01_input/Trivy/")
+
+trivy_list <- list.files(trivy_path)
+
+values_to_remove <- c("T_X.XX.X")
+
+# Remove specific values from trivy_list
+trivy_list <- trivy_list[!trivy_list %in% values_to_remove]
+
+trivy_list <- mixedsort(trivy_list)
+
+totalVulnerabilityCount <- vector("list", length(trivy_list))  # Initialize as a list
+
+for (i in seq_along(trivy_list)) {
+  trivy_version <- trivy_list[i]
+  
+  # Read the CSV file
+  csv_file_path <- paste0(trivy_path, "/master_dataTrivy.csv")
+  data <- read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum of the third column
+  column_sum <- sum(as.numeric(data$count))
+  
+  # Store the values in a mini-vector
+  totalVulnerabilityCount[[i]] <- c(trivy_version = trivy_version, column_sum = column_sum)
+}
+
+```
+
+```{r}
+# Create Visual
+# Convert totalVulnerabilityCount list to a data frame
+df <- do.call(rbind, totalVulnerabilityCount)
+df <- as.data.frame(df, stringsAsFactors = FALSE)
+
+# Convert the totalVulnerabilityCount list to a data frame
+df$column_sum <- as.numeric(df$column_sum)
+
+# Create a bar chart
+ggplot(df, aes(x = trivy_version, y = column_sum)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  xlab("Trivy Version") +
+  ylab("Total Vulnerability Count") +
+  ggtitle("Vulnerability Count by Trivy Version") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90)) +  scale_y_continuous(limits = c(0, max(df$column_sum)))
+```
+

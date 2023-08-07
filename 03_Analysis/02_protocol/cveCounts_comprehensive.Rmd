@@ -1,0 +1,203 @@
+---
+title: "cveCounts_comprehensive"
+author: "Gabe Cowley"
+date: "2023-07-24"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+cvelist <- read.csv(here("02_Preprocessing", "02c_onlyCVEs", "03_incremental", "cvesIdentified.csv"))
+
+
+grype_list <- list.files(paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/"))
+trivy_list <- list.files(paste0("YOUR PATH","/reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Trivy/"))
+```
+
+```{r}
+# Creating lists of all versions, and adding in the release dates, we looked up and added each of these manually. 
+grype_versions <- list(list("G_X.XX.X", as.Date("Year-month-day")))
+trivy_versions <- list(list("T_X.XX.X", as.Date("Year-month-day")))
+```
+
+```{r}
+#If certain versions of grype or trivy weren't able to run all images, remove them from the list.
+values_to_removeGrype <- c("G_X.X.X")
+values_to_removeTrivy <- c("T_X.X.X")
+
+# Filter grype_versions based on values_to_removeGrype
+grype_versions <-
+  grype_versions[!sapply(grype_versions, function(x)
+    x[[1]]) %in% values_to_removeGrype]
+
+# Filter grype_versions based on values_to_removeGrype
+grype_list <-
+  grype_list[!sapply(grype_list, function(x)
+    x[[1]]) %in% values_to_removeGrype]
+
+# Filter grype_versions based on values_to_removeGrype
+trivy_versions <-
+  trivy_versions[!sapply(trivy_versions, function(x)
+    x[[1]]) %in% values_to_removeTrivy]
+
+# Filter trivy_versions based on values_to_removeTrivy
+trivy_list <-
+  trivy_list[!sapply(trivy_list, function(x)
+    x[[1]]) %in% values_to_removeTrivy]
+```
+
+```{r}
+# Create an empty dataframe with two columns
+vulnerabilityCounts_grype <-
+  data.frame(
+    vulnerabilityID = character(),
+    count = integer(),
+    stringsAsFactors = FALSE
+  )
+
+# To go through each grype version in sequence
+for (grype_version in grype_list) {
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_grype <- df_grype[, c("vulnerabilityID", "count")]
+  
+  # Combine the data with the existing vulnerabilityCounts dataframe
+  vulnerabilityCounts_grype <-
+    rbind(vulnerabilityCounts_grype, df_grype)
+}
+
+# Squishes together multiple entries of the same vulnerability ID into one, with respective counts summed. The multiple entries would arise from the same vulnerability in different images and different Grype versions.
+vulnerabilityCounts_grype_summed <- vulnerabilityCounts_grype %>%
+  group_by(vulnerabilityID) %>%
+  summarize(count = sum(count)) %>%
+  arrange(desc(count))
+```
+
+```{r}
+# Create an empty dataframe with two columns
+vulnerabilityCounts_trivy <-
+  data.frame(
+    vulnerabilityID = character(),
+    count = integer(),
+    stringsAsFactors = FALSE
+  )
+
+# To go through each Trivy version in sequence.
+for (trivy_version in trivy_list) {
+  df_trivy <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Trivy",
+        trivy_version,
+        "master_dataTrivy.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_trivy <- df_trivy[, c("vulnerabilityID", "count")]
+  
+  # Combine the data with the existing vulnerabilityCounts dataframe
+  vulnerabilityCounts_trivy <-
+    rbind(vulnerabilityCounts_trivy, df_trivy)
+}
+
+# Squishes together multiple entries of the same vulnerability ID into one, with respective counts summed. The multiple entries would arise from the same vulnerability in different images and different Trivy versions.
+vulnerabilityCounts_trivy_summed <- vulnerabilityCounts_trivy %>%
+  group_by(vulnerabilityID) %>%
+  summarize(count = sum(count)) %>%
+  arrange(desc(count))
+```
+
+```{r}
+# Normalizing the grype and trivy counts so that they are comparable, regardless of the number of Grype or Trivy versions tallied across.
+vulnerabilityCounts_grype_normalized <-
+  vulnerabilityCounts_grype_summed %>%
+  mutate(normalized_count = count / length(grype_list))
+
+vulnerabilityCounts_trivy_normalized <-
+  vulnerabilityCounts_trivy_summed %>%
+  mutate(normalized_count = count / length(trivy_list))
+
+#vulnerabilityCounts_difference <- data.frame(vulnerabilityID = character(),
+#                                  grype_count = integer(),
+#                                  trivy_count = integer(),
+#                                  stringsAsFactors = FALSE)
+
+# Merge the dataframes using full outer join and rename columns
+merged_data <-
+  merge(
+    vulnerabilityCounts_grype_normalized,
+    vulnerabilityCounts_trivy_normalized,
+    by = "vulnerabilityID",
+    all = TRUE,
+    suffixes = c("_grype", "_trivy")
+  )
+
+# Replace NA (missing values) with 0 in the count and normalized_count columns
+merged_data$count_grype[is.na(merged_data$count_grype)] <- 0
+merged_data$count_trivy[is.na(merged_data$count_trivy)] <- 0
+merged_data$normalized_count_grype[is.na(merged_data$normalized_count_grype)] <-
+  0
+merged_data$normalized_count_trivy[is.na(merged_data$normalized_count_trivy)] <-
+  0
+
+# Find the difference of the normalized count
+merged_data$normalized_count_difference <-
+  merged_data$normalized_count_grype - merged_data$normalized_count_trivy
+
+# ReleaseDate = unlist(as.Date(trivy_dates, origin = "1970-01-01")) -> This is how we can convert the versions to time again 
+```
+
+```{r}
+# Filter out so that we only get those vulnerabilities identified at least 50 times
+merged_data <- merged_data %>%
+  filter(abs(normalized_count_difference) >= 50)
+
+
+vulnerabilityCounts_grype_normalized <-
+  vulnerabilityCounts_grype_normalized %>%
+  filter(normalized_count >= 175)
+
+vulnerabilityCounts_trivy_normalized <-
+  vulnerabilityCounts_trivy_normalized %>%
+  filter(normalized_count >= 175)
+
+vulnerabilityCounts_trivy_normalized <-
+  vulnerabilityCounts_trivy_normalized %>%
+  filter(normalized_count >= 150)
+
+# Create a scatter plot using ggplot2, and set the order of "vulnerabilityID" based on "count" values
+ggplot(data = vulnerabilityCounts_grype_normalized, aes(x = reorder(vulnerabilityID,-count), y = normalized_count)) +
+  geom_point(color = "blue", size = 3) +
+  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
+  labs(x = "Vulnerability ID", y = "Count", title = "Grype Normalized: Vulnerability Counts (>= 175)")
+
+# Create a scatter plot using ggplot2, and set the order of "vulnerabilityID" based on "count" values
+ggplot(data = vulnerabilityCounts_trivy_normalized, aes(x = reorder(vulnerabilityID,-count), y = normalized_count)) +
+  geom_point(color = "blue", size = 3) +
+  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
+  labs(x = "Vulnerability ID", y = "Count", title = "Trivy Normalized: Vulnerability Counts (>= 175)")
+
+# Create a scatter plot using ggplot2, and set the order of "vulnerabilityID" based on "count" values
+ggplot(data = merged_data, aes(x = reorder(
+  vulnerabilityID,-abs(normalized_count_difference)
+), y = normalized_count_difference)) +
+  geom_point(color = "blue", size = 3) +
+  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
+  labs(x = "Vulnerability ID", y = "Count", title = "Normalized Difference: Vulnerability Counts (|difference| >= 50)")
+
+
+```
+

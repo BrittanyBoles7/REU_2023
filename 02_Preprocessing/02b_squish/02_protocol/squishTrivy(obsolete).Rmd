@@ -1,0 +1,83 @@
+---
+title: "squishTrivy"
+author: "Gabe Cowley"
+output: html_document
+date: "2023-06-14"
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+
+```{r setup}
+library(tidyverse)
+library(jsonlite)
+library(here)
+```
+
+## Initialize
+
+```{r initialize}
+
+csv_files <-
+  list.files(
+    path = here("02_Preprocessing", "02b_squish", "01_input", "Trivy"),
+    pattern = "Trivy.csv",
+    full.names = TRUE
+  )
+
+# Create an empty list to store the processed data frames
+data_list <- list()
+
+# Iterate through the CSV files
+for (file in csv_files) {
+  # Read the CSV file
+  data <- read_csv(file)
+  
+  # Remove leading and trailing whitespace from column names
+  col_names <- trimws(colnames(data))
+  col_names <- make.names(col_names, unique = TRUE, allow_ = TRUE)
+  colnames(data) <- col_names
+  
+  # Extract the image name from the file name
+  image_name <- str_remove(file, "Trivy.csv")
+  
+  # Group the data by column names and calculate the count
+  processed_data <- data %>%
+    group_by(vulnerabilityID, severity) %>%
+    summarise(count = n()) %>%
+    mutate(count = ifelse(is.na(vulnerabilityID), 0, count)) %>%
+    ungroup() %>%
+    mutate(imageName = basename(image_name))
+  
+  # Append the processed data frame to the list
+  data_list[[file]] <- processed_data
+}
+```
+
+```{r}
+# Bind the data
+master_data <- bind_rows(data_list)
+```
+
+```{r}
+# Rename and reorder the columns
+colnames(master_data)[1:2] <- c("vulnerabilityID", "severity")
+
+master_data <- select(master_data, imageName, vulnerabilityID, count, severity)
+```
+
+```{r}
+# Specify the directory path
+directory_path <- here("02_Preprocessing", "02b_squish", "04_product", "Trivy")
+
+output_name <- "master_dataTrivy.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(master_data, file = file_path, row.names = FALSE)
+
+```

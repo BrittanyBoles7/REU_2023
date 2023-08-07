@@ -1,0 +1,159 @@
+---
+title: "intertool_line"
+author: "Gabe Cowley"
+date: "2023-07-13"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(gtools)
+library(purrr)
+```
+
+
+```{r}
+# To call the appropriate Grype and Trivy version folders that hold the images
+grype_path <- paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/01_input/Grype/")
+trivy_path <- paste0("YOUR PATH","/media/reu2023/extradrive1/reu-2023-cloud-tools/03_Analysis/01_input/Trivy/")
+
+grype_list <- list.files(grype_path)
+trivy_list <- list.files(trivy_path)
+```
+
+```{r}
+# Creating lists of all versions, and adding in the release dates, we looked up and added each of these manually. 
+grype_versions <- list(list("G_X.XX.X", as.Date("Year-month-day")))
+trivy_versions <- list(list("T_X.XX.X", as.Date("Year-month-day")))
+```
+
+```{r}
+#If certian versions of grype or trivy weren't able to run all images, remove them from the list.
+values_to_removeGrype <- c("G_X.X.X")
+values_to_removeTrivy <- c("T_X.X.X")
+```
+
+```{r}
+# Filter grype_versions based on values_to_removeGrype
+grype_versions <-
+  grype_versions[!sapply(grype_versions, function(x)
+    x[[1]]) %in% values_to_removeGrype]
+
+# Extract grype_list and grype_dates from the filtered grype_versions
+grype_list <- sapply(grype_versions, function(x)
+  x[[1]])
+grype_dates <- sapply(grype_versions, function(x)
+  x[[2]])
+
+# Filter grype_versions based on values_to_removeGrype
+trivy_versions <-
+  trivy_versions[!sapply(trivy_versions, function(x)
+    x[[1]]) %in% values_to_removeTrivy]
+
+# Extract grype_list and grype_dates from the filtered grype_versions
+trivy_list <- sapply(trivy_versions, function(x)
+  x[[1]])
+trivy_dates <- sapply(trivy_versions, function(x)
+  x[[2]])
+
+# Initialize lists to store the vulnerability counts
+grype_counts <- vector("list", length(grype_list))
+trivy_counts <- vector("list", length(trivy_list))
+
+# Calculate the vulnerability counts and release dates for each Grype version
+for (i in seq_along(grype_list)) {
+  grype_version <- grype_list[i]
+  
+  # Read the CSV file
+  csv_file_path <-
+    paste0(grype_path, grype_version, "/master_dataGrype.csv")
+  data <-
+    read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum of vulnerability counts
+  column_sum_total <- sum(as.numeric(data$count))
+  
+  # Store the value in a list
+  grype_counts[[i]] <- column_sum_total
+  
+  # Store the release date in a list
+  grype_dates[[i]] <- grype_dates[i]
+}
+
+# Calculate the vulnerability counts and release dates for each Trivy version
+for (i in seq_along(trivy_list)) {
+  trivy_version <- trivy_list[i]
+  
+  # Read the CSV file
+  csv_file_path <-
+    paste0(trivy_path, trivy_version, "/master_dataTrivy.csv")
+  data <-
+    read_csv(csv_file_path, col_types = cols(count = col_character()))
+  
+  # Calculate the sum of vulnerability counts
+  column_sum_total <- sum(as.numeric(data$count))
+  
+  # Store the value in a list
+  trivy_counts[[i]] <- column_sum_total
+  
+  # Store the release date in a list
+  trivy_dates[[i]] <- trivy_versions[[i]][[2]]
+}
+
+# Create a data frame for Grype versions, vulnerability counts, and release dates
+grype_data <- data.frame(
+  Version = grype_list,
+  VulnerabilityCount = unlist(grype_counts),
+  ReleaseDate = unlist(as.Date(grype_dates, origin = "1970-01-01"))
+)
+
+# Create a data frame for Trivy versions, vulnerability counts, and release dates
+trivy_data <- data.frame(
+  Version = trivy_list,
+  VulnerabilityCount = unlist(trivy_counts),
+  ReleaseDate = unlist(as.Date(trivy_dates, origin = "1970-01-01"))
+)
+
+# Plot the line graph
+ggplot() +
+  geom_line(
+    data = grype_data,
+    aes(x = ReleaseDate, y = VulnerabilityCount, group = 1),
+    color = "darkorange"
+  ) +
+  geom_point(
+    data = grype_data,
+    aes(x = ReleaseDate, y = VulnerabilityCount),
+    color = "darkorange"
+  ) +
+  geom_line(
+    data = trivy_data,
+    aes(x = ReleaseDate, y = VulnerabilityCount, group = 1),
+    color = "steelblue"
+  ) +
+  geom_point(
+    data = trivy_data,
+    aes(x = ReleaseDate, y = VulnerabilityCount),
+    color = "steelblue"
+  ) +
+  annotate(
+    "text",
+    x = max(grype_data$ReleaseDate),
+    y = max(grype_data$VulnerabilityCount),
+    label = "Grype",
+    color = "darkorange",
+    hjust = 1,
+    vjust = 2.5
+  ) +
+  annotate(
+    "text",
+    x = max(trivy_data$ReleaseDate),
+    y = max(trivy_data$VulnerabilityCount),
+    label = "Trivy",
+    color = "steelblue",
+    hjust = 1,
+    vjust = -1
+  ) +
+  labs(x = "Timeline", y = "Total Vulnerability Count") +
+  theme(axis.text.x = element_text(angle = 90))
+
+```

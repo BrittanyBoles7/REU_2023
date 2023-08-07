@@ -1,0 +1,53 @@
+---
+title: "imageTojsonGrype"
+author: "Gabe Cowley"
+date: "2023-07-07"
+output: html_document
+---
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(data.table)
+library(here)
+```
+
+```{r}
+grype_path = paste0("YOUR FILE PATH","reu-2023-cloud-tools/01a_ToolAcquisition/Grype/")
+
+
+#List of all Grype versions being used
+grype_list <- list.files(grype_path)
+#if only one version of interest fill in version below and uncomment
+#grype_list <- "G_0.XX.0"
+
+# WE KNOW THIS IS BAD (THERE'S AN EXPLICITLY MENTIONED PASSWORD)
+docker_images_output <- system("echo YOUR_PASSWORD_FOR_DOCKER | sudo -S docker images --format '{{.Repository}}:{{.Tag}}'", intern = TRUE)
+
+```
+
+```{r}
+
+#docker_images_output <- c("docker:latest")
+
+#for each version of grype run each docker image through and save results (as json)
+for (grype_version in grype_list) {
+  grype_version_filepath = paste0(grype_path, grype_version)
+  for (i in 1:length(docker_images_output)) {
+    # The particular image we're working with
+    image <- docker_images_output[i]
+    print(image)
+   
+   # What we want to name our output files
+    output_name <- paste0("YOUR FILE PATH", "reu-2023-cloud-tools/01b_DataAcquisition/04_product/Grype/", grype_version,"/",image,".json")
+   
+   
+   # Initializing Grype
+   command <- paste("echo YOUR_PASSWORD | sudo -S", grype_version_filepath, image, "-o json >", output_name)
+   
+   # Execute the command
+   output <- system(command, intern = TRUE)
+  }
+}
+```
+

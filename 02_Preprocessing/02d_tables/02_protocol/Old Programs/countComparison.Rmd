@@ -1,0 +1,78 @@
+---
+title: "countComparison"
+author: "Sabrina Hendricks & Gabe Cowley"
+date: "2023-06-14, 2023-06-20"
+output: html_document
+---
+```{r setup}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+# Read the CSV files
+df_trivy <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Trivy", "master_dataTrivy.csv"))
+df_grype <- read.csv(here("02_Preprocessing", "02c_tables", "01_input", "Grype", "master_dataGrype.csv"))
+```
+
+```{r}
+#view(df_trivy)
+#view(df_grype)
+```
+
+
+```{r}
+# Remove the "severity" column from the DataFrames
+df_trivy <- df_trivy[, -which(names(df_trivy) == "severity")]
+df_grype <- df_grype[, -which(names(df_grype) == "severity")]
+```
+
+```{r}
+# Perform a left join to include vulnerabilityIDs from df_grype that are not in df_trivy
+#commented out because we no longer care about the imageName information
+#merged_df <- full_join(df_trivy, df_grype, by = c("imageName", "vulnerabilityID"))
+
+# Perform a left join to include vulnerabilityIDs from df_grype that are not in df_trivy
+merged_df <- full_join(df_trivy, df_grype, by = "vulnerabilityID")
+
+# Sum the count columns and remove the "imageName" columns
+merged_df <- merged_df %>%
+  group_by(vulnerabilityID) %>%
+  summarize(trivyCount = sum(count.x, na.rm = TRUE),
+            grypeCount = sum(count.y, na.rm = TRUE)) %>%
+  ungroup()
+
+# Rename the columns
+#colnames(merged_df)[which(names(merged_df) == "count.x")] <- "trivyCount"
+#colnames(merged_df)[which(names(merged_df) == "count.y")] <- "grypeCount"
+
+# Remove duplicates based on vulnerabilityID column
+#merged_df <- merged_df[!duplicated(merged_df$vulnerabilityID), ]
+
+# Sort the dataframe by vulnerabilityID
+merged_df <- arrange(merged_df, desc(trivyCount))
+
+# Replace NA values with 0
+merged_df$trivyCount[is.na(merged_df$trivyCount)] <- 0
+merged_df$grypeCount[is.na(merged_df$grypeCount)] <- 0
+
+# Reset row names
+rownames(merged_df) <- NULL
+```
+```{r}
+view(merged_df)
+```
+
+```{r}
+# Specify the directory path
+directory_path <- here("02_Preprocessing", "02c_tables", "04_product")
+
+output_name <- "countComparison.csv"
+
+# Specify the file path along with the directory path
+file_path <- here(directory_path, output_name)
+
+# Save the data frame as a CSV file
+write.csv(merged_df, file = file_path, row.names = FALSE)
+```
+

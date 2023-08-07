@@ -1,0 +1,66 @@
+---
+title: "twoTools_countDifferenceComparison"
+author: "Gabe Cowley"
+date: "2023-07-21"
+output: html_document
+---
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(here)
+```
+
+```{r}
+# To call the relevant file
+file_basepath <-
+  paste0("YOUR PATH",
+         "reu-2023-cloud-tools/02_Preprocessing/02d_tables/04_product")
+file_name <- "T_0.XX.0vsG_0.XX.0_net_ID.csv"
+
+tool1_name <- gsub("(.*)vs.*", "\\1", file_name)
+tool2_name <- gsub(".*vs(.*)_net_ID.csv", "\\1", file_name)
+
+# Read the data from the CSV file
+data <-
+  read_csv(here(file_basepath, file_name), show_col_types = FALSE)
+
+# Filter the data to only include rows where "difference" is greater than 25
+filtered_data <- data %>% filter(difference > 45)
+
+# Create a mirrored bar chart using ggplot2
+ggplot(filtered_data, aes(x = reorder(vulnerabilityID,-difference), y = tool1count_sum)) +
+  geom_bar(aes(fill = tool1_name),
+           stat = "identity",
+           position = position_dodge(width = 0.75)) +
+  geom_bar(
+    aes(y = -tool2count_sum, fill = tool2_name),
+    stat = "identity",
+    position = position_dodge(width = 0.75)
+  ) +
+  labs(
+    title = paste(
+      "VulnerabilityID Differences (",
+      tool1_name,
+      "vs",
+      tool2_name,
+      ")"
+    ),
+    x = "VulnerabilityID",
+    y = "Difference"
+  ) +
+  scale_fill_manual(values = c(
+    "T_0.XX.0" = "steelblue",
+    "G_0.XX.0" = "darkorange"
+  )) +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1,
+      vjust = 0.5
+    ),
+    legend.title = element_blank(),
+    legend.position = "bottom"
+  )
+
+```

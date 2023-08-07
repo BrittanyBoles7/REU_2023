@@ -1,0 +1,472 @@
+---
+title: "bubbleViz"
+author: "Gabe Cowley"
+date: "2023-08-25"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(gtools)
+library(purrr)
+library(here)
+```
+
+
+```{r}
+cvelist <- read.csv(here("02_Preprocessing", "02c_onlyCVEs", "03_incremental", "cvesIdentified.csv"))
+
+
+grype_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/"))
+trivy_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Trivy/"))
+```
+
+```{r}
+# Creating lists of all versions, and adding in the release dates, we looked up and added each of these manually. 
+grype_versions <- list(list("G_X.XX.X", as.Date("Year-month-day")))
+trivy_versions <- list(list("T_X.XX.X", as.Date("Year-month-day")))
+```
+
+```{r}
+#If certian versions of grype or trivy weren't able to run all images, remove them from the list.
+values_to_removeGrype <- c("G_X.X.X")
+values_to_removeTrivy <- c("T_X.X.X")
+
+# Filter grype_versions based on values_to_removeGrype
+grype_versions <-
+  grype_versions[!sapply(grype_versions, function(x)
+    x[[1]]) %in% values_to_removeGrype]
+
+# Filter trivy_versions based on values_to_removeTrivy
+trivy_versions <-
+  trivy_versions[!sapply(trivy_versions, function(x)
+    x[[1]]) %in% values_to_removeTrivy]
+
+# Get just the tool versions we're using
+grype_list <- lapply(grype_versions, "[[", 1)
+trivy_list <- lapply(trivy_versions, "[[", 1)
+```
+
+```{r}
+# Create an empty dataframe with three columns: vulnerabilityID, version (toolVersion), and count for Grype
+bubble_grype <- data.frame(
+  vulnerabilityID = character(),
+  toolVersion = character(),
+  imageName = character(),
+  count = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (grype_version in grype_list) {
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  
+  # Keep only the "vulnerabilityID" and "counts" columns
+  df_grype <- df_grype[, c("imageName", "vulnerabilityID", "count")]
+  
+  # Add the "grype_version" column with the current grype_version value
+  df_grype$toolVersion <- grype_version
+  
+  # Combine the data with the existing bubble_grype dataframe
+  bubble_grype <- rbind(bubble_grype, df_grype)
+}
+
+# List of images to filter
+images_to_keep_grype <- c("IMAGE_NAME:latest")
+
+# List of vulnerabilityIDs to filter
+#This is which ever vulnerabilities your interested in.(Typically most common)
+vulnerabilityIDs_to_keep_grype <- c("CVE-XXXX-XXXX")
+
+#Where imageName and vulnerabilityID are the same, combine the rows and sum their counts
+bubble_grype_filtered <- bubble_grype %>%
+  filter(
+    imageName %in% images_to_keep_grype,
+    grepl("^CVE-\\d{4}-\\d+$", vulnerabilityID) &
+      vulnerabilityID %in% vulnerabilityIDs_to_keep_grype
+  ) %>%
+  group_by(vulnerabilityID, imageName, toolVersion) %>%
+  summarize(average_count = mean(count)) %>%
+  ungroup() %>%
+  arrange(imageName, vulnerabilityID) %>%
+  select(vulnerabilityID, imageName, toolVersion, average_count) %>%
+  group_by(imageName, vulnerabilityID) %>%
+  mutate(widespread = n_distinct(toolVersion) / length(grype_versions)) %>%
+  ungroup()
+```
+
+```{r}
+# Create an empty dataframe with three columns: vulnerabilityID, version (toolVersion), and count for Trivy
+bubble_trivy <- data.frame(
+  vulnerabilityID = character(),
+  toolVersion = character(),
+  imageName = character(),
+  count = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (trivy_version in trivy_list) {
+  df_trivy <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Trivy",
+        trivy_version,
+        "master_dataTrivy.csv"
+      )
+    )
+  
+  df_trivy <- df_trivy[, c("imageName", "vulnerabilityID", "count")]
+  
+  # Add the "trivy_version" column with the current trivy_version value
+  df_trivy$toolVersion <- trivy_version
+  
+  # Combine the data with the existing bubble_trivy dataframe
+  bubble_trivy <- rbind(bubble_trivy, df_trivy)
+}
+
+# List of images to filter
+images_to_keep_trivy <- c("IMAGE_NAME:latest")
+
+# List of vulnerabilityIDs to filter
+vulnerabilityIDs_to_keep_trivy <- c("CVE-XXXX-XXXXX")
+
+#Where imageName and vulnerabilityID are the same, combine the rows and sum their counts
+bubble_trivy_filtered <- bubble_trivy %>%
+  filter(
+    imageName %in% images_to_keep_trivy,
+    grepl("^CVE-\\d{4}-\\d+$", vulnerabilityID) &
+      vulnerabilityID %in% vulnerabilityIDs_to_keep_trivy
+  ) %>%
+  group_by(vulnerabilityID, imageName, toolVersion) %>%
+  summarize(average_count = mean(count)) %>%
+  ungroup() %>%
+  arrange(imageName, vulnerabilityID) %>%
+  select(vulnerabilityID, imageName, toolVersion, average_count) %>%
+  group_by(imageName, vulnerabilityID) %>%
+  mutate(widespread = n_distinct(toolVersion) / length(trivy_versions)) %>%
+  ungroup()
+```
+
+```{r}
+bubble_merged_grype <- bubble_grype %>%
+  group_by(vulnerabilityID, imageName, toolVersion) %>%
+  summarize(average_count = mean(count)) %>%
+  ungroup() %>%
+  arrange(imageName, vulnerabilityID) %>%
+  select(vulnerabilityID, imageName, toolVersion, average_count) %>%
+  group_by(imageName, vulnerabilityID) %>%
+  mutate(widespread = n_distinct(toolVersion) / length(grype_versions)) %>%
+  ungroup() %>%
+  distinct(vulnerabilityID, imageName, .keep_all = TRUE) %>%
+  select(-toolVersion)
+
+bubble_merged_trivy <- bubble_trivy %>%
+  group_by(vulnerabilityID, imageName, toolVersion) %>%
+  summarize(average_count = mean(count)) %>%
+  ungroup() %>%
+  arrange(imageName, vulnerabilityID) %>%
+  select(vulnerabilityID, imageName, toolVersion, average_count) %>%
+  group_by(imageName, vulnerabilityID) %>%
+  mutate(widespread = n_distinct(toolVersion) / length(trivy_versions)) %>%
+  ungroup() %>%
+  distinct(vulnerabilityID, imageName, .keep_all = TRUE) %>%
+  select(-toolVersion)
+
+colnames(bubble_merged_grype)[colnames(bubble_merged_grype) == "widespread"] <-
+  "widespreadGrype"
+colnames(bubble_merged_trivy)[colnames(bubble_merged_trivy) == "widespread"] <-
+  "widespreadTrivy"
+colnames(bubble_merged_grype)[colnames(bubble_merged_grype) == "average_count"] <-
+  "average_countGrype"
+colnames(bubble_merged_trivy)[colnames(bubble_merged_trivy) == "average_count"] <-
+  "average_countTrivy"
+
+# Merge the data frames using full_join
+merged_data <-
+  full_join(bubble_merged_grype,
+            bubble_merged_trivy,
+            by = c("imageName", "vulnerabilityID"))
+
+merged_data$average_countGrype <-
+  replace_na(merged_data$average_countGrype, 0)
+merged_data$average_countTrivy <-
+  replace_na(merged_data$average_countTrivy, 0)
+merged_data$widespreadGrype <-
+  replace_na(merged_data$widespreadGrype, 0)
+merged_data$widespreadTrivy <-
+  replace_na(merged_data$widespreadTrivy, 0)
+
+images_to_keep_merged <- c("IMAGE_NAME:latest")
+
+# List of vulnerabilityIDs to filter
+vulnerabilityIDs_to_keep_merged <- c("CVE-XXXX-XXXX")
+
+merged_data_filtered <- merged_data %>%
+  filter(
+    imageName %in% images_to_keep_merged,
+    str_detect(vulnerabilityID, "^CVE-\\d{4}-\\d+$") &
+      vulnerabilityID %in% vulnerabilityIDs_to_keep_merged
+  ) %>%
+  group_by(vulnerabilityID, imageName) %>%
+  summarize(
+    diffAverageCount = abs(average_countGrype - average_countTrivy),
+    diffWidespread = abs(widespreadGrype - widespreadTrivy)
+  ) %>%
+  ungroup() %>%
+  arrange(imageName, vulnerabilityID) %>%
+  select(vulnerabilityID, imageName, diffAverageCount, diffWidespread)
+```
+
+```{r}
+# Create the bubble plot
+bubble_plot_grype <-
+  ggplot(
+    bubble_grype_filtered,
+    aes(
+      x = vulnerabilityID,
+      y = imageName,
+      size = average_count,
+      fill = widespread
+    )
+  ) +
+  geom_point(alpha = 0.7,
+             colour = "#fed8a9",
+             shape = 21) +  # Use alpha to set transparency of points and shape 21 for filled circles
+  scale_fill_gradient(low = "white", high = "#ff8c00") +  # Set the color gradient from DarkOrange to black for fill
+  #scale_color_gradient(low = "#fed8a9", high = "#ff8c00") +  # Set the color gradient from DarkOrange to black for outline
+  #title = "Grype Bubble Plot of Vulnerabilities",
+  labs(
+    x = "Vulnerability ID",
+    y = "Image Name",
+    size = "Average Count",
+    fill = "Widespread",
+    color = "Widespread (Outline)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(
+    angle = 60,
+    vjust = 1,
+    hjust = 1
+  ))
+
+bubble_plot_trivy <-
+  ggplot(
+    bubble_trivy_filtered,
+    aes(
+      x = vulnerabilityID,
+      y = imageName,
+      size = average_count,
+      fill = widespread
+    )
+  ) +
+  geom_point(alpha = 0.7,
+             colour = "#98a8b5",
+             shape = 21) +  # Use alpha to set transparency of points and shape 21 for filled circles
+  scale_fill_gradient(low = "white", high = "#4682b4") +  # Set the color gradient from SteelBlue to greyish-blue for fill
+  #scale_color_gradient(low = "#98a8b5", high = "#4682b4") +  # Set the color gradient from SteelBlue to greyish-blue for outline
+  #title = "Trivy Bubble Plot of Vulnerabilities",
+  labs(
+    x = "Vulnerability ID",
+    y = "Image Name",
+    size = "Average Count",
+    fill = "Widespread",
+    color = "Widespread (Outline)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(
+    angle = 60,
+    vjust = 1,
+    hjust = 1
+  ))
+
+bubble_plot_merged <-
+  ggplot(
+    merged_data_filtered,
+    aes(
+      x = vulnerabilityID,
+      y = imageName,
+      size = diffAverageCount,
+      fill = diffWidespread
+    )
+  ) +
+  geom_point(alpha = 0.7,
+             colour = '#cfcccc',
+             shape = 21) +  # Use alpha to set transparency of points
+  scale_fill_gradient(low = "white", high = "#636363") +  # Set the color gradient from light grey to dark grey for fill
+  #title = "Bubble Plot of Vulnerability Difference Between Tools",
+  labs(
+    x = "Vulnerability ID",
+    y = "Image Name",
+    size = "Average Count Difference",
+    fill = "Widespread Difference",
+    color = "Widespread (Outline)"
+  ) +
+  theme(axis.text.x = element_text(
+    angle = 60,
+    vjust = 1,
+    hjust = 1
+  ))
+
+# Print the bubble plot
+print(bubble_plot_grype)
+print(bubble_plot_trivy)
+print(bubble_plot_merged)
+
+ggsave(
+  filename = paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/04_product/bubblePlot_Grype.pdf"),
+  plot = bubble_plot_grype,
+  width = 10,
+  height = 7
+)
+ggsave(
+  filename = paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/04_product/bubblePlot_Trivy.pdf"),
+  plot = bubble_plot_trivy,
+  width = 10,
+  height = 7
+)
+ggsave(
+  filename = paste0("YOUR PATH","/reu-2023-cloud-tools/03_Analysis/04_product/bubblePlot_Difference.pdf"),
+  plot = bubble_plot_merged,
+  width = 10,
+  height = 7
+)
+```
+
+```{r}
+# # Basically, we're finding how prevalent/widespread our vulnerabilities are
+# # Finds the number of images each vulnerabilityID shows up in
+# #image_occurences_df <- bubble_trivy %>%
+# #  group_by(vulnerabilityID) %>%
+# #  summarize(image_occurences_count = n_distinct(imageName))
+# 
+# # For identical vulnerabilityID and imageName, count the number of unique toolVersions in each group
+# proportion_image_occurrences <- bubble_trivy %>%
+#   group_by(vulnerabilityID, imageName) %>%
+#   summarize(image_occurrences_count = n_distinct(toolVersion))
+# 
+# # For identical vulnerabilityID and imageName, count the number of unique toolVersions in each group
+# proportion_image_occurrences <- bubble_trivy %>%
+#   group_by(vulnerabilityID, imageName) %>%
+#   summarize(image_occurrences_count = n_distinct(toolVersion))
+# 
+# # Calculate the proportion of images each vulnerabilityID shows up in
+# proportion_image_occurrences <- proportion_image_occurrences %>%
+#   mutate(proportion_occurrences = image_occurrences_count / n_distinct(bubble_trivy$imageName))
+# 
+
+```
+
+```{r}
+
+# # Finds the number of images each vulnerabilityID shows up in
+# image_occurences_df <- bubble_trivy %>%
+#   group_by(vulnerabilityID) %>%
+#   summarize(image_occurences_count = n_distinct(imageName))
+# 
+# # Join the unique counts back to the original dataframe
+# bubble_trivy <- bubble_trivy %>%
+#   left_join(image_occurences_df, by = "vulnerabilityID") %>%
+#   group_by(vulnerabilityID) %>%
+#   mutate(Mean = sum(count) / image_occurences_count) %>%
+#   ungroup()
+# # %>%
+# #  arrange(vulnerabilityID, imageName) %>%
+# #  select(vulnerabilityID, imageName, count, Mean)
+```
+
+```{r}
+########### PLOT TO INCLUDE IN PAPER
+# cve_pts_plt <-
+#   ggplot(bubble_grype,
+#          aes(y= imageName, x = vulnerabilityID, color = Median, size = Spread)) +
+#   geom_point()+
+#   scale_size_continuous(name = "Detections", limits = c(0.0001, 100)) +
+#   scale_color_viridis_c(name = "Median", option = "turbo", begin = 0.025, end = 0.95)+
+#   # theme(legend.position="top")+
+#   theme(
+#     axis.text.x = element_text(angle = 40, hjust=1),
+#     legend.direction = "horizontal",
+#     legend.box = "vertical",
+#     legend.position = "top",
+#     legend.margin=margin(c(-5,0,1,0)),
+#     legend.box.spacing = unit(0, "pt")
+#   )+
+#   labs(x = "Vulnerability ID", y = "Image")
+# 
+# cwe_pts_plt <-
+#   ggplot(cwe_smry,
+#          aes(y= Id, x = Version, color = Median, size = Spread)) +
+#   geom_point()+
+#   scale_size_continuous(name = "Detections", limits = c(0.0001,100)) +
+#   scale_color_viridis_c(name = "Median", option = "turbo", begin = 0.025, end = 0.95)+
+#   # theme(legend.position="top")+
+#   theme(
+#     axis.text.x = element_text(angle = 40, hjust=1),
+#     legend.direction = "horizontal",
+#     legend.box = "vertical",
+#     legend.position = "top",
+#     legend.margin=margin(c(-5,0,1,0)),
+#     legend.box.spacing = unit(0, "pt")
+#   )+
+#   labs(x = "Version", y = "CWE Id")+
+#   guides(
+#     color = guide_colorbar(order = 1),
+#     fill = guide_legend(order = 0)
+#   )
+# 
+# cwe_pts_plt1 <-
+#   ggplot(cwe_smry[cwe_smry$Id %in% c("457", "676"),],
+#          aes(y= Id, x = Version, color = Median, size = Spread)) +
+#   geom_point()+
+#   scale_size_continuous(name = "Detections", limits = c(0.0001,100)) +
+#   scale_color_viridis_c(name = "Median", option = "turbo", begin = 0.025, end = 0.95)+
+#   # theme(legend.position="top")+
+#   theme(
+#     axis.text.x = element_text(angle = 40, hjust=1),
+#     legend.direction = "horizontal",
+#     legend.box = "vertical",
+#     legend.position = "top",
+#     legend.margin=margin(c(-5,0,1,0)),
+#     legend.box.spacing = unit(0, "pt")
+#   )+
+#   labs(x = "Version", y = "CWE Id")+
+#   guides(
+#     color = guide_colorbar(order = 1),
+#     fill = guide_legend(order = 0)
+#   )
+# cwe_pts_plt2 <-ggplot(cwe_smry[!(cwe_smry$Id %in% c("457", "676")),], #"787", "125", "476","416", "190", "782"
+#                       aes(y= Id, x = Version, color = Median, size = Spread)) +
+#   geom_point()+
+#   scale_size_continuous(name = "Detections", limits = c(0.0001,100)) +
+#   scale_color_viridis_c(name = "Median", option = "turbo", begin = 0.025, end = 0.95)+
+#   # theme(legend.position="top")+
+#   theme(
+#     axis.text.x = element_text(angle = 40, hjust=1),
+#     legend.direction = "horizontal",
+#     legend.box = "vertical",
+#     legend.position = "top",
+#     legend.margin=margin(c(-5,0,1,0)),
+#     legend.box.spacing = unit(0, "pt")
+#   )+
+#   labs(x = "Version", y = "CWE Id")+
+#   guides(
+#     color = guide_colorbar(order = 1),
+#     fill = guide_legend(order = 0)
+#   )
+# 
+# how_widespread_common_all_together <-
+#   ggarrange(
+#     ggarrange(cwe_pts_plt1, cwe_pts_plt2, nrow = 2, ncol = 1, heights = c(3.1, 8)),
+#     cve_pts_plt,
+#     nrow =1,
+#     labels = c("A", "B")
+#     )
+# how_widespread_common_all_together
+
+```
+

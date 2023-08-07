@@ -1,0 +1,151 @@
+---
+title: "imageCountVariation"
+author: "Gabe Cowley"
+date: "2023-07-24"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+grype_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Grype/"))
+trivy_list <- list.files(paste0("YOUR PATH","reu-2023-cloud-tools/02_Preprocessing/02c_onlyCVEs/01_input/Trivy/"))
+```
+
+```{r}
+values_to_removeGrype <- c("G_X.X.X")
+values_to_removeTrivy <- c("T_X.XX.X")
+
+# Filter grype_versions based on values_to_removeGrype
+grype_list <-
+  grype_list[!sapply(grype_list, function(x)
+    x[[1]]) %in% values_to_removeGrype]
+
+# Filter grype_versions based on values_to_removeTrivy
+#trivy_versions <- trivy_versions[!sapply(trivy_versions, function(x) x[[1]]) %in% values_to_removeTrivy]
+
+# Filter trivy_versions based on values_to_removeTrivy
+trivy_list <-
+  trivy_list[!sapply(trivy_list, function(x)
+    x[[1]]) %in% values_to_removeTrivy]
+```
+
+```{r}
+# Create an empty dataframe with two columns
+imageVulnerabilityCounts_grype <-
+  data.frame(
+    imageName = character(),
+    toolVersion = character(),
+    totalCount = integer(),
+    stringsAsFactors = FALSE
+  )
+
+for (grype_version in grype_list) {
+  df_grype <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Grype",
+        grype_version,
+        "master_dataGrype.csv"
+      )
+    )
+  df_grype <- df_grype[, c("imageName", "vulnerabilityID", "count")]
+  
+  # Remove ":latest" from imageName
+  df_grype$imageName <- gsub(":latest", "", df_grype$imageName)
+  
+  # Calculate the totalCount by summing "count" for each imageName
+  image_total_count <- df_grype %>%
+    group_by(imageName) %>%
+    summarize(totalCount = sum(count))
+  
+  # Add the grype_version for this iteration
+  image_total_count$grype_version <- grype_version
+  
+  # Add the results to the imageVulnerabilityCounts_grype dataframe
+  imageVulnerabilityCounts_grype <-
+    rbind(imageVulnerabilityCounts_grype, image_total_count) %>%
+    arrange(imageName)
+}
+
+# Calculate the standard deviation for each imageName
+image_stDev_list_grype <- imageVulnerabilityCounts_grype %>%
+  group_by(imageName) %>%
+  summarize(stDev = sd(totalCount)) %>%
+  filter(stDev >= 15) %>%
+  arrange(desc(stDev))
+```
+
+```{r}
+# Create an empty dataframe with two columns
+imageVulnerabilityCounts_trivy <-
+  data.frame(
+    imageName = character(),
+    toolVersion = character(),
+    totalCount = integer(),
+    stringsAsFactors = FALSE
+  )
+
+for (trivy_version in trivy_list) {
+  df_trivy <-
+    read.csv(
+      here(
+        "02_Preprocessing/02c_onlyCVEs/04_product/Trivy",
+        trivy_version,
+        "master_dataTrivy.csv"
+      )
+    )
+  df_trivy <- df_trivy[, c("imageName", "vulnerabilityID", "count")]
+  
+  # Remove ":latest" from imageName
+  df_trivy$imageName <- gsub(":latest", "", df_trivy$imageName)
+  
+  # Calculate the totalCount by summing "count" for each imageName
+  image_total_count <- df_trivy %>%
+    group_by(imageName) %>%
+    summarize(totalCount = sum(count))
+  
+  # Add the trivy_version for this iteration
+  image_total_count$trivy_version <- trivy_version
+  
+  # Add the results to the imageVulnerabilityCounts_grype dataframe
+  imageVulnerabilityCounts_trivy <-
+    rbind(imageVulnerabilityCounts_trivy, image_total_count) %>%
+    arrange(imageName)
+}
+
+# Calculate the standard deviation for each imageName
+image_stDev_list_trivy <- imageVulnerabilityCounts_trivy %>%
+  group_by(imageName) %>%
+  summarize(stDev = sd(totalCount)) %>%
+  filter(stDev >= 5) %>%
+  arrange(desc(stDev))
+```
+
+```{r}
+# Reorder levels of "imageName" factor based on descending order of "stDev"
+image_stDev_list_grype$imageName <-
+  factor(image_stDev_list_grype$imageName,
+         levels = image_stDev_list_grype$imageName[order(image_stDev_list_grype$stDev, decreasing = TRUE)])
+
+image_stDev_list_trivy$imageName <-
+  factor(image_stDev_list_trivy$imageName,
+         levels = image_stDev_list_trivy$imageName[order(image_stDev_list_trivy$stDev, decreasing = TRUE)])
+
+#Create a scatter plot using ggplot2
+ggplot(data = image_stDev_list_grype, aes(x = imageName, y = stDev)) +
+  geom_point(color = "blue", size = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "Image Name", y = "Standard Deviation", title = "Grype: Standard Deviation of Counts by Image Name, StDev >= 15")
+
+ggplot(data = image_stDev_list_trivy, aes(x = imageName, y = stDev)) +
+  geom_point(color = "blue", size = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "Image Name", y = "Standard Deviation", title = "Trivy: Standard Deviation of Counts by Image Name, StDev >= 5")
+```
+
+
+
